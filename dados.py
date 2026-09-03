@@ -96,6 +96,9 @@ NOMES_COMERCIALIZADORES = {
 # mostrados nas tabelas.
 PRINCIPAIS = [
     "EDP",
+    "Galp COMBINA",
+    "Galp Casa & Estrada",
+    "Galp Negócios",
     "Galp",
     "Iberdrola",
     "Endesa",
@@ -140,6 +143,28 @@ def nome_comercializador(codigo: str) -> str:
 
 def rotulo_potencia(potencia: float) -> str:
     return f"{potencia:.2f}".replace(".", ",")
+
+
+# A Galp vende varias familias de ofertas com o mesmo codigo de
+# comercializador. Sem as separar, a coluna Comercializador diz "Galp" em todas
+# e, como as tabelas guardam a proposta mais barata de cada comercializador, o
+# Plano COMBINA desaparece por tras do Casa & Estrada. O criterio e o inicio do
+# nome da proposta, que e como a ERSE as identifica.
+FAMILIAS_GALP = (
+    ("plano combina", "Galp COMBINA"),
+    ("casa & estrada", "Galp Casa & Estrada"),
+    ("galp negócios", "Galp Negócios"),
+    ("plano negócios", "Galp Negócios"),
+)
+
+
+def familia_galp(proposta: str) -> str | None:
+    """Familia de uma oferta da Galp, ou None se o nome nao a identificar."""
+    texto = (proposta or "").strip().lower()
+    for prefixo, nome in FAMILIAS_GALP:
+        if texto.startswith(prefixo):
+            return nome
+    return None
 
 # Valores por omissao dos encargos que aparecem na fatura de eletricidade.
 CAV_MENSAL = 2.85       # contribuicao audiovisual, IVA a 6%
@@ -417,6 +442,11 @@ def _juntar(precos: pd.DataFrame, condicoes: pd.DataFrame) -> pd.DataFrame:
     junto["marca"] = junto["comercializador"].map(nome_comercializador)
     junto["proposta"] = junto["proposta"].fillna("").replace("", pd.NA)
     junto["proposta"] = junto["proposta"].fillna(junto["codigo"])
+    # A seguir a proposta estar preenchida, porque e dela que sai a familia.
+    galp = junto["marca"] == "Galp"
+    if galp.any():
+        familias = junto.loc[galp, "proposta"].map(familia_galp)
+        junto.loc[galp, "marca"] = familias.fillna("Galp")
     for coluna in ("indexada", "so_novos_clientes", "renovavel", "tarifa_social"):
         junto[coluna] = junto[coluna].fillna(False).astype(bool)
     for coluna in condicoes.columns:
