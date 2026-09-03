@@ -75,6 +75,10 @@ POTENCIA_PREDEFINIDA = 3.45
 # faz um deposito por mes num carro pequeno.
 LITROS_PREDEFINIDOS = 40.0
 
+# Compras no supermercado que vem no campo do Galp COMBINA. E sobre este valor
+# que incide a percentagem do Continente, e nao sobre a fatura de energia.
+COMPRAS_PREDEFINIDAS = 300.0
+
 st.set_page_config(
     page_title=TITULO,
     page_icon="⚡",
@@ -892,14 +896,15 @@ def mostrar_resultado_simulacao(resultado: pd.DataFrame, cor: str) -> None:
     )
 
 
-def campos_combina(sufixo: str) -> tuple[bool, float]:
+def campos_combina(sufixo: str) -> tuple[bool, float, float]:
     """
-    Os dois campos extra que alimentam o Galp COMBINA.
+    Os campos extra que alimentam o Galp COMBINA.
 
     A eletricidade e o gas nao se perguntam aqui: saem da modalidade que o
-    utilizador escolheu no simulador.
+    utilizador escolheu no simulador. O que falta e o NOS, que decide o nivel,
+    e os dois valores sobre os quais incidem os beneficios.
     """
-    coluna1, coluna2 = st.columns([1, 1])
+    coluna1, coluna2, coluna3 = st.columns([1, 1, 1])
     with coluna1:
         nos = st.checkbox(
             "Tem NOS em casa?",
@@ -908,6 +913,19 @@ def campos_combina(sufixo: str) -> tuple[bool, float]:
             help="Conta como um serviço elegível para o Galp COMBINA.",
         )
     with coluna2:
+        compras = st.number_input(
+            "Compras no Continente (€/mês)",
+            min_value=0.0,
+            value=COMPRAS_PREDEFINIDAS,
+            step=25.0,
+            key=f"com_combina_{sufixo}",
+            help=(
+                f"O que gasta por mês no supermercado. A percentagem do "
+                f"COMBINA incide sobre este valor e volta em saldo no Cartão "
+                f"Continente, até {dados.COMBINA_MAX_COMPRAS:.0f} € por mês."
+            ),
+        )
+    with coluna3:
         litros = st.number_input(
             "Combustível (L/mês)",
             min_value=0.0,
@@ -920,7 +938,7 @@ def campos_combina(sufixo: str) -> tuple[bool, float]:
                 f"{dados.COMBINA_MAX_LITROS_ABASTECIMENTO:.0f} L por abastecimento."
             ),
         )
-    return nos, float(litros)
+    return nos, float(litros), float(compras)
 
 
 def _linha_servicos(servicos: dict) -> str:
@@ -995,19 +1013,20 @@ def seccao_combina(combina: dict, origem: str = "", e_combina: bool = True) -> N
             "do Continente.",
         ),
         _celula(
-            "Com Continente",
+            "Com o saldo Continente",
             _preco_kwh(combina["preco_continente"]),
-            f"menos {percentagem}%",
-            f"O preço da energia depois de retirados os {percentagem}% que "
-            f"voltam no Cartão Continente.",
+            "preço equivalente",
+            "O custo da energia menos o saldo que volta no Cartão Continente, "
+            "por kWh. É uma equivalência: o saldo gasta-se no supermercado, "
+            "não abate na fatura de energia.",
         ),
         _celula(
             "Com Continente e Galp",
             _preco_kwh(combina["preco_equivalente"]),
             "preço equivalente",
-            "Junta também a poupança em combustível. É uma métrica de "
-            "comparação: a Galp desconta nos abastecimentos, não no preço do "
-            "kWh. Nunca desce abaixo de zero.",
+            "Junta o saldo do Continente e a poupança em combustível. É uma "
+            "métrica de comparação, nenhum dos dois abate na fatura de "
+            "energia. Nunca desce abaixo de zero.",
             forte=True,
         ),
     )
@@ -1018,7 +1037,7 @@ def seccao_combina(combina: dict, origem: str = "", e_combina: bool = True) -> N
             "Custo da energia",
             euros(combina["custo_energia"]),
             "por mês",
-            "O preço por kWh vezes o consumo. É a base do desconto Continente.",
+            "O preço por kWh vezes o consumo, sem termo fixo, encargos nem IVA.",
         ),
         _celula(
             "Fatura de energia",
@@ -1027,12 +1046,24 @@ def seccao_combina(combina: dict, origem: str = "", e_combina: bool = True) -> N
             "A fatura toda desta proposta, já com termo fixo, encargos e IVA. "
             "É o valor que aparece na tabela das ofertas, mais abaixo.",
         ),
+    )
+
+    compras = _grelha(
+        _celula("Compras", euros(combina["compras"]), "por mês"),
         _celula(
-            "Poupança Continente",
+            "Compras elegíveis",
+            euros(combina["compras_elegiveis"]),
+            "contam para a percentagem",
+            f"O programa conta até {euros(dados.COMBINA_MAX_COMPRAS)} de "
+            f"compras por mês.",
+        ),
+        _celula("Percentagem", f"{percentagem}%", "do COMBINA " + str(combina["nivel"])),
+        _celula(
+            "Saldo no cartão",
             euros(combina["poupanca_continente"]),
-            f"{percentagem}% da energia",
-            f"{percentagem}% sobre o custo da energia, até ao limite de "
-            f"{euros(dados.COMBINA_MAX_COMPRAS)} por mês.",
+            "por mês",
+            f"{percentagem}% sobre as compras elegíveis. Volta em saldo no "
+            f"Cartão Continente, não é abatido na fatura de energia.",
         ),
     )
 
@@ -1061,8 +1092,8 @@ def seccao_combina(combina: dict, origem: str = "", e_combina: bool = True) -> N
     avisos = []
     if combina["continente_limitado"]:
         avisos.append(
-            f"O custo da energia passa os {euros(dados.COMBINA_MAX_COMPRAS)} "
-            f"elegíveis por mês, por isso a percentagem foi aplicada só a esse valor."
+            f"As compras passam os {euros(dados.COMBINA_MAX_COMPRAS)} elegíveis "
+            f"por mês, por isso a percentagem foi aplicada só a esse valor."
         )
     if combina["litros_limitado"]:
         avisos.append(
@@ -1070,10 +1101,11 @@ def seccao_combina(combina: dict, origem: str = "", e_combina: bool = True) -> N
             f"{combina['litros_elegiveis']:.0f} L contam para o desconto."
         )
     avisos.append(
-        "O valor final junta duas coisas de natureza diferente: a poupança do "
-        "Continente vem em cartão e a da Galp é desconto em combustível, não um "
-        "abatimento na fatura de energia. Serve para comparar o valor total do "
-        "pacote, não para prever o que vem no papel da fatura."
+        "Nenhum dos dois benefícios sai da fatura de energia: um volta em saldo "
+        "no Cartão Continente e o outro é desconto nos abastecimentos. A fatura "
+        "que paga é a de cima. Os preços por kWh que descontam os benefícios "
+        "servem para comparar o valor do pacote, não para prever o que vem no "
+        "papel da fatura."
     )
     if combina["valor_final_negativo"]:
         avisos.append(
@@ -1099,6 +1131,9 @@ def seccao_combina(combina: dict, origem: str = "", e_combina: bool = True) -> N
 
   <div class="seccao">A tua energia</div>
   {energia}
+
+  <div class="seccao">As tuas compras no Continente</div>
+  {compras}
 
   <div class="seccao">O teu combustível</div>
   {combustivel}
@@ -1352,7 +1387,7 @@ def _ancora_combina(resultado: pd.DataFrame, nos: bool, meses: int) -> dict:
 
 def simulador_eletricidade(catalogo: dados.Catalogo) -> None:
     entradas = entradas_ele(catalogo)
-    nos, litros = campos_combina("simele")
+    nos, litros, compras = campos_combina("simele")
     filtros = filtros_comuns(catalogo, "ele", "simele")
     so_melhor = st.checkbox(
         "Mostrar só a oferta mais barata de cada comercializador",
@@ -1381,6 +1416,7 @@ def simulador_eletricidade(catalogo: dados.Catalogo) -> None:
             energia_ele=ancora["energia"],
             kwh_ele=sum(consumos) / meses,
             litros=litros,
+            compras=compras,
         ),
         ancora["proposta"],
         ancora["e_combina"],
@@ -1393,7 +1429,7 @@ def simulador_eletricidade(catalogo: dados.Catalogo) -> None:
 
 def simulador_gas(catalogo: dados.Catalogo) -> None:
     entradas = entradas_gn(catalogo)
-    nos, litros = campos_combina("simgn")
+    nos, litros, compras = campos_combina("simgn")
     filtros = filtros_comuns(catalogo, "gn", "simgn")
     so_melhor = st.checkbox(
         "Mostrar só a oferta mais barata de cada comercializador",
@@ -1418,6 +1454,7 @@ def simulador_gas(catalogo: dados.Catalogo) -> None:
             energia_gas=ancora["energia"],
             kwh_gas=kwh / meses,
             litros=litros,
+            compras=compras,
         ),
         ancora["proposta"],
         ancora["e_combina"],
@@ -1506,7 +1543,7 @@ def simulador_ele_gas(catalogo: dados.Catalogo) -> None:
     ent_gn = entradas_gn(catalogo, sufixo="_eg", meses=int(meses))
 
     st.markdown("#### Outros serviços")
-    nos, litros = campos_combina("simeg")
+    nos, litros, compras = campos_combina("simeg")
 
     # Aqui nao ha o filtro de uma oferta por comercializador: a tabela junta as
     # duas energias e por isso ja e uma linha por comercializador.
@@ -1546,6 +1583,7 @@ def simulador_ele_gas(catalogo: dados.Catalogo) -> None:
             energia_gas=ancora_gn["energia"],
             kwh_gas=ent_gn["kwh"] / meses,
             litros=litros,
+            compras=compras,
         ),
         origens,
         ancora_ele["e_combina"] and ancora_gn["e_combina"],

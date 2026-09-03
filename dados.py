@@ -661,7 +661,9 @@ COMBINA_NIVEIS = {
     3: {"continente": 10.0, "galp": 0.30},
 }
 
-# Teto mensal de compras que contam para a percentagem do Continente.
+# Teto mensal de compras no Continente que contam para a percentagem. A
+# percentagem incide sobre o que o cliente gasta no supermercado, nao sobre a
+# fatura de energia, e volta em saldo no Cartao Continente.
 COMBINA_MAX_COMPRAS = 450.0
 
 # Teto mensal de litros que contam para o desconto da Galp.
@@ -748,9 +750,14 @@ def oferta_combina(resultado, nos: bool = False):
     return galp.sort_values("total").iloc[0]
 
 
-def beneficio_continente(valor_mensal: float, percentagem: float) -> dict:
-    """Cartao Continente: percentagem sobre o valor mensal, com teto."""
-    valor = max(float(valor_mensal), 0.0)
+def beneficio_continente(compras_mensais: float, percentagem: float) -> dict:
+    """
+    Cartao Continente: percentagem sobre as compras do mes, com teto.
+
+    A base sao as compras no supermercado e nao a fatura de energia. Com
+    COMBINA 1 e 300 EUR de compras sao 6 EUR de saldo no cartao.
+    """
+    valor = max(float(compras_mensais), 0.0)
     elegivel = min(valor, COMBINA_MAX_COMPRAS)
     return {
         "valor": valor,
@@ -791,17 +798,26 @@ def simular_combina(
     energia_gas: float = 0.0,
     kwh_gas: float = 0.0,
     litros: float = 0.0,
+    compras: float = 0.0,
     mesmo_local: bool = True,
 ) -> dict:
     """
     Tudo o que a seccao Galp COMBINA precisa de mostrar, ja calculado.
 
+    Nenhum dos dois beneficios sai da fatura de energia. A percentagem do
+    Continente incide sobre compras, o que o cliente gasta por mes no
+    supermercado, e volta em saldo no cartao. O desconto da Galp incide sobre
+    os litros de combustivel. A fatura de energia nao muda por causa de
+    nenhum deles: o que muda e o dinheiro que sobra ao fim do mes.
+
     Ha duas grandezas por energia e nao se podem trocar. energia_* e o custo so
     da energia, o preco por kWh vezes o consumo, sem termo fixo, contribuicao
-    audiovisual, taxa DGEG nem IVA: e sobre esta parcela que incide a
-    percentagem do Continente e e dela que sai o preco por kWh mostrado.
+    audiovisual, taxa DGEG nem IVA, e e dela que sai o preco por kWh mostrado.
     fatura_* e a fatura inteira, que e o que se paga e o que aparece na tabela
     das ofertas.
+
+    Os precos por kWh que descontam os beneficios sao equivalencias, para dar
+    para comparar, e nao o preco que vem na fatura. Nunca descem de zero.
 
     Todos os valores de entrada e de saida sao mensais, porque os limites do
     programa sao mensais. Quem chama trata de dividir o periodo simulado.
@@ -822,21 +838,22 @@ def simular_combina(
     custo_energia = custo_ele + custo_gas
     kwh_total = consumo_ele + consumo_gas
 
-    continente = beneficio_continente(custo_energia, nivel["continente_percentagem"])
+    continente = beneficio_continente(compras, nivel["continente_percentagem"])
     galp = beneficio_galp(litros, nivel["galp_por_litro"])
     poupanca_total = continente["beneficio"] + galp["beneficio"]
 
-    # O beneficio do Continente reparte-se pelas duas energias na proporcao do
-    # custo de cada uma, para o preco efetivo de cada uma fazer sentido.
+    # O saldo do cartao reparte-se pelas duas energias na proporcao do custo de
+    # cada uma, para o preco equivalente de cada uma fazer sentido.
     def _efetivo(custo: float, consumo: float) -> float | None:
         if custo_energia <= 0:
             return preco_por_kwh(custo, consumo)
         parte = continente["beneficio"] * (custo / custo_energia)
-        return preco_por_kwh(custo - parte, consumo)
+        return preco_por_kwh(max(custo - parte, 0.0), consumo)
 
     # Quando os beneficios passam o custo da energia, o preco equivalente para
     # em zero. Um preco negativo nao diria nada a ninguem.
-    sobra = custo_energia - continente["beneficio"] - galp["beneficio"]
+    so_continente = custo_energia - continente["beneficio"]
+    sobra = so_continente - galp["beneficio"]
     valor_final = fatura_energia - poupanca_total
     return {
         "nivel": nivel["nivel"],
@@ -852,6 +869,8 @@ def simular_combina(
         "kwh_ele": consumo_ele,
         "kwh_gas": consumo_gas,
         "kwh_total": kwh_total,
+        "compras": continente["valor"],
+        "compras_elegiveis": continente["elegivel"],
         "continente_elegivel": continente["elegivel"],
         "continente_limitado": continente["limitado"],
         "poupanca_continente": continente["beneficio"],
@@ -863,9 +882,8 @@ def simular_combina(
         "valor_final": valor_final,
         "valor_final_negativo": valor_final < 0,
         "preco_normal": preco_por_kwh(custo_energia, kwh_total),
-        "preco_continente": preco_por_kwh(
-            custo_energia - continente["beneficio"], kwh_total
-        ),
+        "preco_continente": preco_por_kwh(max(so_continente, 0.0), kwh_total),
+        "preco_continente_limitado": so_continente < 0,
         "preco_equivalente": preco_por_kwh(max(sobra, 0.0), kwh_total),
         "preco_equivalente_limitado": sobra < 0,
         "poupanca_por_kwh": preco_por_kwh(poupanca_total, kwh_total),

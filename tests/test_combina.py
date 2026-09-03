@@ -1,6 +1,10 @@
 """
 Testes das regras do Galp COMBINA.
 
+Nenhum dos dois beneficios sai da fatura de energia. A percentagem do
+Continente incide sobre as compras do mes no supermercado e volta em saldo no
+cartao; o desconto da Galp incide sobre os litros de combustivel.
+
 Usa so o unittest da biblioteca padrao, para nao acrescentar dependencias ao
 projeto. Correr da raiz do repositorio com:
 
@@ -19,7 +23,7 @@ import dados  # noqa: E402
 
 
 class TestNivel(unittest.TestCase):
-    """A matriz completa da seccao 7 do pedido, linha a linha."""
+    """A matriz completa dos niveis, linha a linha."""
 
     def nivel(self, ele: bool, gas: bool, nos: bool) -> dict:
         return dados.nivel_combina(ele, gas, nos)
@@ -42,13 +46,11 @@ class TestNivel(unittest.TestCase):
         r = self.nivel(False, True, False)
         self.assertEqual(r["nivel"], 1)
         self.assertEqual(r["continente_percentagem"], 2.0)
-        self.assertEqual(r["galp_por_litro"], 0.20)
 
     def test_3_so_nos(self):
         r = self.nivel(False, False, True)
         self.assertEqual(r["nivel"], 1)
         self.assertEqual(r["continente_percentagem"], 2.0)
-        self.assertEqual(r["galp_por_litro"], 0.20)
 
     def test_4_eletricidade_e_gas(self):
         r = self.nivel(True, True, False)
@@ -60,13 +62,11 @@ class TestNivel(unittest.TestCase):
         r = self.nivel(True, False, True)
         self.assertEqual(r["nivel"], 2)
         self.assertEqual(r["continente_percentagem"], 5.0)
-        self.assertEqual(r["galp_por_litro"], 0.25)
 
     def test_6_gas_e_nos(self):
         r = self.nivel(False, True, True)
         self.assertEqual(r["nivel"], 2)
         self.assertEqual(r["continente_percentagem"], 5.0)
-        self.assertEqual(r["galp_por_litro"], 0.25)
 
     def test_7_os_tres(self):
         r = self.nivel(True, True, True)
@@ -85,10 +85,9 @@ class TestNivel(unittest.TestCase):
         )
 
     def test_local_diferente_nao_soma_gas_a_eletricidade(self):
-        """Seccao 9: so contam juntos se forem do mesmo local de consumo."""
+        """So contam juntos se forem do mesmo local de consumo."""
         r = dados.nivel_combina(True, True, False, mesmo_local=False)
         self.assertEqual(r["nivel"], 1)
-        # O gas continua a ser um servico do cliente, so nao soma nivel.
         self.assertTrue(r["servicos"]["gas"])
 
     def test_local_diferente_sem_eletricidade_o_gas_conta(self):
@@ -97,24 +96,26 @@ class TestNivel(unittest.TestCase):
 
 
 class TestContinente(unittest.TestCase):
-    def test_8_preco_efetivo_com_continente(self):
-        """300 kWh a 0,15 EUR, COMBINA 3."""
-        r = dados.simular_combina(
-            eletricidade=True,
-            gas=True,
-            nos=True,
-            fatura_ele=45.0,
-            energia_ele=45.0,
-            kwh_ele=300.0,
-        )
-        self.assertEqual(r["nivel"], 3)
-        self.assertAlmostEqual(r["fatura_energia"], 45.0)
-        self.assertAlmostEqual(r["poupanca_continente"], 4.50)
-        self.assertAlmostEqual(r["fatura_energia"] - r["poupanca_continente"], 40.50)
-        self.assertAlmostEqual(r["preco_normal"], 0.15)
-        self.assertAlmostEqual(r["preco_continente"], 0.135)
+    """A percentagem incide sobre as compras do supermercado."""
 
-    def test_11_limite_dos_450_euros(self):
+    def test_exemplo_do_cliente(self):
+        """COMBINA 1 com 300 EUR de compras da 6 EUR de saldo no cartao."""
+        r = dados.beneficio_continente(300.0, 2.0)
+        self.assertAlmostEqual(r["beneficio"], 6.0)
+        self.assertAlmostEqual(r["elegivel"], 300.0)
+        self.assertFalse(r["limitado"])
+
+    def test_as_tres_percentagens_com_300_euros(self):
+        esperado = {1: 6.0, 2: 15.0, 3: 30.0}
+        for nivel, saldo in esperado.items():
+            percentagem = dados.COMBINA_NIVEIS[nivel]["continente"]
+            self.assertAlmostEqual(
+                dados.beneficio_continente(300.0, percentagem)["beneficio"],
+                saldo,
+                msg=f"COMBINA {nivel}",
+            )
+
+    def test_limite_dos_450_euros(self):
         r = dados.beneficio_continente(500.0, 10.0)
         self.assertAlmostEqual(r["elegivel"], 450.0)
         self.assertAlmostEqual(r["beneficio"], 45.0)
@@ -132,41 +133,38 @@ class TestContinente(unittest.TestCase):
             r = dados.beneficio_continente(10_000.0, percentagem)
             self.assertAlmostEqual(r["beneficio"], maximo, msg=f"COMBINA {nivel}")
 
+    def test_a_fatura_de_energia_nao_entra_na_conta(self):
+        """O erro que isto corrige: a percentagem era sobre a fatura."""
+        magra = dados.simular_combina(
+            eletricidade=True, compras=300.0, fatura_ele=40.0, energia_ele=25.0
+        )
+        gorda = dados.simular_combina(
+            eletricidade=True, compras=300.0, fatura_ele=200.0, energia_ele=150.0
+        )
+        self.assertAlmostEqual(magra["poupanca_continente"], 6.0)
+        self.assertAlmostEqual(gorda["poupanca_continente"], 6.0)
+
 
 class TestGalp(unittest.TestCase):
-    def test_9_cento_e_cinquenta_litros(self):
+    def test_cento_e_cinquenta_litros(self):
         r = dados.beneficio_galp(150.0, 0.30)
         self.assertAlmostEqual(r["beneficio"], 45.0)
         self.assertFalse(r["limitado"])
 
-    def test_10_limite_dos_250_litros(self):
+    def test_limite_dos_250_litros(self):
         r = dados.beneficio_galp(300.0, 0.30)
         self.assertAlmostEqual(r["litros"], 300.0)
         self.assertAlmostEqual(r["elegiveis"], 250.0)
         self.assertAlmostEqual(r["beneficio"], 75.0)
         self.assertTrue(r["limitado"])
 
-    def test_12_zero_litros(self):
-        r = dados.simular_combina(
-            eletricidade=True,
-            nos=True,
-            fatura_ele=45.0,
-            energia_ele=45.0,
-            kwh_ele=300.0,
-            litros=0.0,
-        )
-        self.assertEqual(r["nivel"], 2)
-        self.assertAlmostEqual(r["poupanca_galp"], 0.0)
-        # Seccao 23: sem litros o cliente nao perde o nivel.
-        self.assertTrue(r["elegivel"])
-        self.assertAlmostEqual(r["continente_percentagem"], 5.0)
-
-    def test_beneficio_por_nivel(self):
-        esperado = {1: 30.0, 2: 37.50, 3: 45.0}
+    def test_quarenta_litros_por_nivel(self):
+        """O valor que vem por omissao no simulador."""
+        esperado = {1: 8.0, 2: 10.0, 3: 12.0}
         for nivel, valor in esperado.items():
             por_litro = dados.COMBINA_NIVEIS[nivel]["galp"]
             self.assertAlmostEqual(
-                dados.beneficio_galp(150.0, por_litro)["beneficio"],
+                dados.beneficio_galp(40.0, por_litro)["beneficio"],
                 valor,
                 msg=f"COMBINA {nivel}",
             )
@@ -181,75 +179,81 @@ class TestGalp(unittest.TestCase):
                 msg=f"COMBINA {nivel}",
             )
 
+    def test_zero_litros_nao_tira_o_nivel(self):
+        r = dados.simular_combina(
+            eletricidade=True,
+            nos=True,
+            compras=300.0,
+            fatura_ele=62.65,
+            energia_ele=46.83,
+            kwh_ele=300.0,
+            litros=0.0,
+        )
+        self.assertEqual(r["nivel"], 2)
+        self.assertAlmostEqual(r["poupanca_galp"], 0.0)
+        self.assertTrue(r["elegivel"])
+        # O saldo do Continente nao depende dos litros.
+        self.assertAlmostEqual(r["poupanca_continente"], 15.0)
+
 
 class TestCenarios(unittest.TestCase):
-    def test_13_eletricidade_mais_nos(self):
-        """O exemplo final da seccao 35."""
-        r = dados.simular_combina(
-            eletricidade=True,
-            nos=True,
-            fatura_ele=45.0,
-            energia_ele=45.0,
-            kwh_ele=300.0,
-            litros=150.0,
-        )
-        self.assertEqual(r["nivel"], 2)
-        self.assertAlmostEqual(r["continente_percentagem"], 5.0)
-        self.assertAlmostEqual(r["galp_por_litro"], 0.25)
-        self.assertAlmostEqual(r["poupanca_continente"], 2.25)
-        self.assertAlmostEqual(r["poupanca_galp"], 37.50)
-        self.assertAlmostEqual(r["poupanca_total"], 39.75)
-        self.assertAlmostEqual(r["preco_normal"], 0.15)
-        self.assertAlmostEqual(r["preco_continente"], 0.1425)
+    """Os valores por omissao do simulador: 300 EUR de compras e 40 L."""
 
-    def test_14_eletricidade_mais_gas_mais_nos(self):
-        r = dados.simular_combina(
-            eletricidade=True,
-            gas=True,
-            nos=True,
-            fatura_ele=45.0, energia_ele=45.0,
+    def cenario(self, **extra):
+        base = dict(
+            compras=300.0,
+            litros=40.0,
+            fatura_ele=62.65,
+            energia_ele=46.83,
             kwh_ele=300.0,
-            fatura_gas=10.0, energia_gas=10.0,
-            kwh_gas=100.0,
-            litros=150.0,
         )
+        base.update(extra)
+        return dados.simular_combina(**base)
+
+    def test_combina_1_so_eletricidade(self):
+        r = self.cenario(eletricidade=True)
+        self.assertEqual(r["nivel"], 1)
+        self.assertAlmostEqual(r["poupanca_continente"], 6.0)
+        self.assertAlmostEqual(r["poupanca_galp"], 8.0)
+        self.assertAlmostEqual(r["poupanca_total"], 14.0)
+
+    def test_combina_2_eletricidade_e_nos(self):
+        r = self.cenario(eletricidade=True, nos=True)
+        self.assertEqual(r["nivel"], 2)
+        self.assertAlmostEqual(r["poupanca_continente"], 15.0)
+        self.assertAlmostEqual(r["poupanca_galp"], 10.0)
+        self.assertAlmostEqual(r["poupanca_total"], 25.0)
+
+    def test_combina_3_os_tres_servicos(self):
+        r = self.cenario(eletricidade=True, gas=True, nos=True)
         self.assertEqual(r["nivel"], 3)
-        self.assertAlmostEqual(r["continente_percentagem"], 10.0)
-        self.assertAlmostEqual(r["galp_por_litro"], 0.30)
-        self.assertAlmostEqual(r["fatura_energia"], 55.0)
-        self.assertAlmostEqual(r["poupanca_galp"], 45.0)
+        self.assertAlmostEqual(r["poupanca_continente"], 30.0)
+        self.assertAlmostEqual(r["poupanca_galp"], 12.0)
+        self.assertAlmostEqual(r["poupanca_total"], 42.0)
 
-    def test_20_eletricidade_mais_gas_a_5_por_cento(self):
-        """Exemplo da seccao 20: 55 EUR de energia com COMBINA 2."""
-        r = dados.simular_combina(
-            eletricidade=True,
-            gas=True,
-            fatura_ele=45.0, energia_ele=45.0,
-            kwh_ele=300.0,
-            fatura_gas=10.0, energia_gas=10.0,
-            kwh_gas=100.0,
+    def test_valor_final_desconta_as_duas_poupancas(self):
+        r = self.cenario(eletricidade=True, nos=True)
+        self.assertAlmostEqual(r["valor_final"], 62.65 - 15.0 - 10.0)
+        self.assertFalse(r["valor_final_negativo"])
+
+    def test_valor_final_pode_ficar_negativo(self):
+        r = self.cenario(
+            eletricidade=True, gas=True, nos=True, compras=450.0, litros=250.0
         )
-        self.assertEqual(r["nivel"], 2)
-        self.assertAlmostEqual(r["fatura_energia"], 55.0)
-        self.assertAlmostEqual(r["poupanca_continente"], 2.75)
+        # 45 EUR de cartao mais 75 EUR de combustivel contra 62,65 de fatura.
+        self.assertAlmostEqual(r["poupanca_total"], 120.0)
+        self.assertLess(r["valor_final"], 0)
+        self.assertTrue(r["valor_final_negativo"])
 
-    def test_beneficio_reparte_se_pelas_duas_energias(self):
-        r = dados.simular_combina(
-            eletricidade=True,
-            gas=True,
-            fatura_ele=45.0, energia_ele=45.0,
-            kwh_ele=300.0,
-            fatura_gas=10.0, energia_gas=10.0,
-            kwh_gas=100.0,
+    def test_soma_as_duas_energias(self):
+        r = self.cenario(
+            eletricidade=True, gas=True, fatura_gas=18.71, energia_gas=13.08
         )
-        # 2,75 EUR repartidos na proporcao 45/55 e 10/55.
-        parte_ele = 2.75 * (45.0 / 55.0)
-        parte_gas = 2.75 * (10.0 / 55.0)
-        self.assertAlmostEqual(r["preco_efetivo_ele"], (45.0 - parte_ele) / 300.0)
-        self.assertAlmostEqual(r["preco_efetivo_gas"], (10.0 - parte_gas) / 100.0)
+        self.assertAlmostEqual(r["fatura_energia"], 62.65 + 18.71)
+        self.assertAlmostEqual(r["custo_energia"], 46.83 + 13.08)
 
-    def test_22_sem_servicos_nao_ha_beneficios(self):
-        r = dados.simular_combina(litros=150.0)
+    def test_sem_servicos_nao_ha_beneficios(self):
+        r = dados.simular_combina(compras=300.0, litros=40.0)
         self.assertFalse(r["elegivel"])
         self.assertEqual(r["nivel"], 0)
         self.assertAlmostEqual(r["poupanca_continente"], 0.0)
@@ -257,118 +261,82 @@ class TestCenarios(unittest.TestCase):
         self.assertAlmostEqual(r["poupanca_total"], 0.0)
 
 
-class TestPrecoEquivalente(unittest.TestCase):
-    def test_18_nunca_devolve_preco_negativo(self):
-        """Os 45 EUR de combustivel nao podem levar a fatura abaixo de zero."""
-        r = dados.simular_combina(
+class TestPrecos(unittest.TestCase):
+    """
+    Os precos por kWh saem do custo da energia. Os que descontam beneficios sao
+    equivalencias, porque nenhum dos dois abate na fatura.
+    """
+
+    def base(self, **extra):
+        conta = dict(
             eletricidade=True,
-            gas=True,
-            nos=True,
-            fatura_ele=45.0, energia_ele=45.0,
+            compras=300.0,
+            litros=40.0,
+            fatura_ele=62.65,
+            energia_ele=46.83,
             kwh_ele=300.0,
-            litros=150.0,
         )
-        self.assertAlmostEqual(r["poupanca_galp"], 45.0)
+        conta.update(extra)
+        return dados.simular_combina(**conta)
+
+    def test_preco_normal_e_o_da_energia(self):
+        r = self.base()
+        self.assertAlmostEqual(r["preco_normal"], 46.83 / 300.0)
+
+    def test_preco_com_saldo_do_continente(self):
+        r = self.base(nos=True)
+        self.assertAlmostEqual(r["preco_continente"], (46.83 - 15.0) / 300.0)
+
+    def test_preco_com_os_dois_beneficios(self):
+        r = self.base(nos=True)
+        self.assertAlmostEqual(r["preco_equivalente"], (46.83 - 15.0 - 10.0) / 300.0)
+
+    def test_o_combustivel_pode_levar_o_equivalente_a_zero(self):
+        r = self.base(gas=True, nos=True, compras=450.0, litros=250.0)
+        # 45 EUR de saldo contra 46,83 de energia: ainda sobra alguma coisa.
+        self.assertAlmostEqual(r["preco_continente"], (46.83 - 45.0) / 300.0)
+        self.assertFalse(r["preco_continente_limitado"])
+        # Somados os 75 EUR de combustivel, ja nao sobra.
         self.assertEqual(r["preco_equivalente"], 0.0)
         self.assertTrue(r["preco_equivalente_limitado"])
 
-    def test_21_galp_nao_se_subtrai_a_fatura_de_energia(self):
-        r = dados.simular_combina(
-            eletricidade=True,
-            nos=True,
-            fatura_ele=45.0, energia_ele=45.0,
-            kwh_ele=300.0,
-            litros=150.0,
-        )
-        # A fatura e o preco com Continente ignoram o combustivel.
-        self.assertAlmostEqual(r["fatura_energia"], 45.0)
-        self.assertAlmostEqual(r["preco_continente"], 0.1425)
-        # O combustivel so aparece na poupanca total.
-        self.assertAlmostEqual(
-            r["poupanca_total"], r["poupanca_continente"] + r["poupanca_galp"]
-        )
+    def test_o_saldo_sozinho_tambem_pode_levar_a_zero(self):
+        """Compras grandes e energia pequena: o cartao cobre a energia toda."""
+        r = self.base(gas=True, nos=True, compras=450.0, energia_ele=30.0)
+        self.assertAlmostEqual(r["poupanca_continente"], 45.0)
+        self.assertEqual(r["preco_continente"], 0.0)
+        self.assertTrue(r["preco_continente_limitado"])
+
+    def test_a_fatura_nao_muda_com_os_beneficios(self):
+        r = self.base(nos=True)
+        self.assertAlmostEqual(r["fatura_energia"], 62.65)
+        self.assertAlmostEqual(r["custo_energia"], 46.83)
 
     def test_poupanca_por_kwh_e_informativa(self):
-        r = dados.simular_combina(
-            eletricidade=True,
-            nos=True,
-            fatura_ele=45.0, energia_ele=45.0,
-            kwh_ele=300.0,
-            litros=150.0,
+        r = self.base(nos=True)
+        self.assertAlmostEqual(r["poupanca_por_kwh"], 25.0 / 300.0)
+
+    def test_saldo_reparte_se_pelas_duas_energias(self):
+        r = self.base(gas=True, fatura_gas=18.71, energia_gas=13.08, kwh_gas=150.0)
+        custo = 46.83 + 13.08
+        saldo = r["poupanca_continente"]
+        self.assertAlmostEqual(
+            r["preco_efetivo_ele"], (46.83 - saldo * 46.83 / custo) / 300.0
         )
-        self.assertAlmostEqual(r["poupanca_por_kwh"], 39.75 / 300.0)
+        self.assertAlmostEqual(
+            r["preco_efetivo_gas"], (13.08 - saldo * 13.08 / custo) / 150.0
+        )
 
     def test_sem_consumo_nao_ha_preco(self):
         r = dados.simular_combina(
-            eletricidade=True, fatura_ele=0.0, energia_ele=0.0, kwh_ele=0.0
+            eletricidade=True, compras=300.0, fatura_ele=0.0, energia_ele=0.0
         )
         self.assertIsNone(r["preco_normal"])
         self.assertIsNone(r["preco_continente"])
 
 
-class TestBaseDoDesconto(unittest.TestCase):
-    """A percentagem do Continente incide so sobre a energia."""
-
-    def test_a_base_e_a_energia_e_nao_a_fatura(self):
-        # Fatura de 85,65 EUR mas so 49,20 EUR de energia, que e o caso real de
-        # uma proposta com termo fixo, taxas e IVA por cima.
-        r = dados.simular_combina(
-            eletricidade=True,
-            gas=True,
-            nos=True,
-            fatura_ele=85.65,
-            energia_ele=49.20,
-            kwh_ele=300.0,
-        )
-        self.assertEqual(r["nivel"], 3)
-        # 10% de 49,20 e nao de 85,65.
-        self.assertAlmostEqual(r["poupanca_continente"], 4.92)
-        self.assertAlmostEqual(r["custo_energia"], 49.20)
-        self.assertAlmostEqual(r["fatura_energia"], 85.65)
-
-    def test_preco_por_kwh_e_o_da_energia(self):
-        r = dados.simular_combina(
-            eletricidade=True,
-            fatura_ele=85.65,
-            energia_ele=49.20,
-            kwh_ele=300.0,
-        )
-        self.assertAlmostEqual(r["preco_normal"], 0.164)
-        # COMBINA 1, 2%: o preco desce na mesma percentagem.
-        self.assertAlmostEqual(r["preco_continente"], 0.164 * 0.98)
-
-    def test_valor_final_desconta_as_duas_poupancas(self):
-        r = dados.simular_combina(
-            eletricidade=True,
-            nos=True,
-            fatura_ele=85.65,
-            energia_ele=49.20,
-            kwh_ele=300.0,
-            litros=150.0,
-        )
-        esperado = 85.65 - r["poupanca_continente"] - r["poupanca_galp"]
-        self.assertAlmostEqual(r["valor_final"], esperado)
-        self.assertAlmostEqual(r["poupanca_continente"], 49.20 * 0.05)
-        self.assertAlmostEqual(r["poupanca_galp"], 150.0 * 0.25)
-        self.assertFalse(r["valor_final_negativo"])
-
-    def test_valor_final_pode_ficar_negativo(self):
-        r = dados.simular_combina(
-            eletricidade=True,
-            gas=True,
-            nos=True,
-            fatura_ele=40.0,
-            energia_ele=30.0,
-            kwh_ele=200.0,
-            litros=250.0,
-        )
-        self.assertAlmostEqual(r["poupanca_galp"], 75.0)
-        self.assertLess(r["valor_final"], 0)
-        self.assertTrue(r["valor_final_negativo"])
-
-
 class TestValidacao(unittest.TestCase):
-    """Seccao 24: nunca aceitar valores negativos."""
+    """Nunca aceitar valores negativos."""
 
     def test_litros_negativos_valem_zero(self):
         r = dados.beneficio_galp(-50.0, 0.30)
@@ -380,13 +348,14 @@ class TestValidacao(unittest.TestCase):
         self.assertAlmostEqual(r["elegivel"], 0.0)
         self.assertAlmostEqual(r["beneficio"], 0.0)
 
-    def test_consumo_negativo_vale_zero(self):
+    def test_tudo_negativo_vale_zero(self):
         r = dados.simular_combina(
             eletricidade=True,
             fatura_ele=-45.0,
             energia_ele=-45.0,
             kwh_ele=-300.0,
             litros=-10.0,
+            compras=-300.0,
         )
         self.assertAlmostEqual(r["fatura_energia"], 0.0)
         self.assertAlmostEqual(r["kwh_total"], 0.0)
