@@ -71,6 +71,10 @@ DIAS_POR_MES = 30.4
 # a unica com IVA reduzido no termo fixo.
 POTENCIA_PREDEFINIDA = 3.45
 
+# Litros de combustivel que vem no campo do Galp COMBINA. E o consumo de quem
+# faz um deposito por mes num carro pequeno.
+LITROS_PREDEFINIDOS = 40.0
+
 st.set_page_config(
     page_title=TITULO,
     page_icon="⚡",
@@ -836,7 +840,6 @@ def mostrar_resultado_simulacao(resultado: pd.DataFrame, cor: str) -> None:
         "custo_potencia",
         "encargos",
         "iva",
-        "restricoes",
         "link_oferta",
     ]
     config = {
@@ -865,12 +868,6 @@ def mostrar_resultado_simulacao(resultado: pd.DataFrame, cor: str) -> None:
             "propostas e mudam-se em «Impostos e encargos».",
         ),
         "iva": st.column_config.NumberColumn("IVA €", format="%.2f"),
-        "restricoes": st.column_config.TextColumn(
-            "Condições de acesso",
-            width="medium",
-            help="Quem pode contratar esta oferta. Vazio quer dizer sem "
-            "condições especiais.",
-        ),
         "link_oferta": st.column_config.LinkColumn(
             "Oferta", display_text="abrir", width="small"
         ),
@@ -914,7 +911,7 @@ def campos_combina(sufixo: str) -> tuple[bool, float]:
         litros = st.number_input(
             "Combustível (L/mês)",
             min_value=0.0,
-            value=0.0,
+            value=LITROS_PREDEFINIDOS,
             step=5.0,
             key=f"lit_{sufixo}",
             help=(
