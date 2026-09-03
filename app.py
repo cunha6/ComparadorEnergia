@@ -194,6 +194,20 @@ ESTILO = """
 div[data-testid="stMetricValue"] {font-size: 1.5rem;}
 section[data-testid="stSidebar"] {background: #F6F8FA; border-right: 1px solid #E4E7EC;}
 .rodape {color: #5B6472; font-size: 0.82rem; margin-top: 30px; line-height: 1.6;}
+
+/* etiquetas dos filtros escolhidos, nos botoes que abrem os menus. A cor vem
+   por estilo inline do Streamlit, por isso so se mexe na forma e no peso, que
+   e o que as torna visiveis sem apagar a diferenca entre a cor da marca e o
+   cinzento do "Nenhum". */
+span.stMarkdownBadge {
+  font-weight: 700 !important;
+  border-radius: 6px !important;
+  padding: 3px 9px !important;
+  margin: 0 4px 0 0 !important;
+  font-size: 0.8rem !important;
+  letter-spacing: 0.2px;
+  box-shadow: 0 1px 2px rgba(16, 21, 31, 0.12);
+}
 </style>
 """
 st.markdown(ESTILO, unsafe_allow_html=True)
@@ -509,7 +523,7 @@ def rotulo_escolhidas(
     nomes = [
         formatar(opcao).replace("[", "(").replace("]", ")") for opcao in ligadas[:maximo]
     ]
-    etiquetas = " ".join(f":blue-badge[{nome}]" for nome in nomes)
+    etiquetas = " ".join(f":primary-badge[{nome}]" for nome in nomes)
     if len(ligadas) > maximo:
         etiquetas += f" :gray-badge[+{len(ligadas) - maximo}]"
     return etiquetas
@@ -607,7 +621,7 @@ def menu_escolha(opcoes: list, chave: str, formatar=str, ajuda: str | None = Non
     outra altura e outra moldura.
     """
     atual = st.session_state.get(chave, opcoes[0])
-    etiqueta = f":blue-badge[{formatar(atual)}]"
+    etiqueta = f":primary-badge[{formatar(atual)}]"
     with st.popover(etiqueta, width="stretch", wrap=False, help=ajuda):
         return st.radio(
             "Segmento",
