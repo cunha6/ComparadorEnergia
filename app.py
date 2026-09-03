@@ -482,16 +482,32 @@ def _marcar_caixas(chave: str, opcoes: list, escolhidas) -> None:
         st.session_state[_chave_caixa(chave, opcao)] = opcao in escolhidas
 
 
-def contar_marcadas(opcoes: list, predefinidas: list, chave: str) -> int:
+def rotulo_escolhidas(
+    opcoes: list,
+    predefinidas: list,
+    chave: str,
+    formatar=str,
+    maximo: int = 6,
+    vazio: str = "Nenhum",
+) -> str:
     """
-    Quantas caixas estao ligadas, para o rotulo do expander.
+    O que esta ligado, para o rotulo do menu.
 
-    Le o session_state e nao o resultado do caixas(), porque o rotulo e
-    desenhado antes das caixas e ficaria sempre um passo atrasado.
+    Serve para o botao dizer os filtros em vez de um numero, como o multiselect
+    mostrava. Com muitas opcoes corta e conta as que sobram, senao o botao
+    ficava com trinta nomes.
     """
-    if not opcoes or _chave_caixa(chave, opcoes[0]) not in st.session_state:
-        return len(predefinidas)
-    return sum(bool(st.session_state.get(_chave_caixa(chave, o))) for o in opcoes)
+    ligadas = [
+        opcao
+        for opcao in opcoes
+        if st.session_state.get(_chave_caixa(chave, opcao), opcao in predefinidas)
+    ]
+    if not ligadas:
+        return vazio
+    nomes = [formatar(opcao) for opcao in ligadas]
+    if len(nomes) > maximo:
+        return " · ".join(nomes[:maximo]) + f"  +{len(nomes) - maximo}"
+    return " · ".join(nomes)
 
 
 def caixas(
@@ -526,7 +542,7 @@ def caixas(
 
 def atalhos_caixas(opcoes: list, predefinidas: list, chave: str) -> None:
     """Botoes para ligar tudo, desligar tudo ou voltar ao que vem de origem."""
-    coluna1, coluna2, coluna3, _ = st.columns([1, 1, 1.4, 4])
+    coluna1, coluna2, coluna3 = st.columns(3)
     coluna1.button(
         "Todos",
         key=f"todos_{chave}",
@@ -559,22 +575,41 @@ def menu_caixas(
     formatar=str,
     atalhos: bool = False,
     ajuda: str | None = None,
+    maximo: int = 6,
 ) -> list:
     """
     Um botao que abre com uma caixa por opcao la dentro.
 
-    Fica compacto como um select mas cada opcao tem o seu visto, que e o que
-    faltava ao multiselect: com muitas escolhidas as etiquetas enchiam a caixa
-    e deixava de dar para navegar. O rotulo diz quantas estao ligadas sem ser
-    preciso abrir.
+    O botao mostra os filtros escolhidos, como o multiselect mostrava, mas em
+    texto que nao cresce em altura. Quem quiser mexer abre e tem uma caixa por
+    opcao, que era o que faltava ao multiselect: com muitas escolhidas as
+    etiquetas enchiam a caixa e deixava de dar para navegar.
     """
-    quantas = contar_marcadas(opcoes, predefinidas, chave)
-    with st.popover(f"{rotulo} ({quantas} de {len(opcoes)})", width="stretch"):
+    escolhidas = rotulo_escolhidas(opcoes, predefinidas, chave, formatar, maximo)
+    with st.popover(escolhidas, width="stretch", wrap=True, help=rotulo):
         if ajuda:
             st.caption(ajuda)
         if atalhos:
             atalhos_caixas(opcoes, predefinidas, chave)
         return caixas(opcoes, predefinidas, chave, colunas, formatar)
+
+
+def menu_escolha(opcoes: list, chave: str, formatar=str, ajuda: str | None = None):
+    """
+    O mesmo aspeto do menu_caixas, mas para escolha unica.
+
+    Existe para o segmento nao ficar um selectbox no meio de dois menus, com
+    outra altura e outra moldura.
+    """
+    atual = st.session_state.get(chave, opcoes[0])
+    with st.popover(formatar(atual), width="stretch", help=ajuda):
+        return st.radio(
+            "Segmento",
+            opcoes,
+            format_func=formatar,
+            key=chave,
+            label_visibility="collapsed",
+        )
 
 
 def filtros_comuns(catalogo: dados.Catalogo, energia: str, chave: str) -> dict:
@@ -598,11 +633,12 @@ def filtros_comuns(catalogo: dados.Catalogo, energia: str, chave: str) -> dict:
 
     coluna1, coluna2, coluna3 = st.columns([1.2, 2, 2])
     with coluna1:
-        segmento = st.selectbox(
-            "Segmento",
+        st.markdown("**Segmento**")
+        segmento = menu_escolha(
             ["Dom", "Ndom", "Todos"],
-            format_func=lambda s: dados.SEGMENTOS.get(s, s),
-            key=f"seg_{chave}",
+            f"seg_{chave}",
+            formatar=lambda s: dados.SEGMENTOS.get(s, s),
+            ajuda="Doméstico, não doméstico ou os dois.",
         )
     with coluna2:
         st.markdown("**Restrições**")
@@ -630,6 +666,7 @@ def filtros_comuns(catalogo: dados.Catalogo, energia: str, chave: str) -> dict:
             colunas=2,
             atalhos=True,
             ajuda="Sem nenhum marcado aparecem todos.",
+            maximo=4,
         )
 
     filtros = {
@@ -812,6 +849,7 @@ def separador_eletricidade(catalogo: dados.Catalogo) -> None:
             colunas=3,
             formatar=dados.rotulo_potencia,
             atalhos=True,
+            maximo=8,
         )
     if not potencias:
         st.warning("Escolha pelo menos uma potência.")
