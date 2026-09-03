@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Comparador de Energia</title>
+<meta name="description" content="Ofertas comerciais de eletricidade e gas natural publicadas pela ERSE.">
+<style>
+  /* Mesmas cores do cabecalho da aplicacao, para a passagem nao se notar. */
+  :root {
+    --tinta: #10151F;
+    --suave: #5B6472;
+    --marca: #0E7C86;
+    --fundo: #F6F8FA;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: grid; place-items: center;
+    padding: 24px; background: var(--fundo); color: var(--tinta);
+    font-family: "Segoe UI", system-ui, -apple-system, Roboto, Helvetica, Arial, sans-serif;
+  }
+  .cartao {
+    width: 100%; max-width: 520px; border-radius: 16px; overflow: hidden;
+    background: #fff; box-shadow: 0 8px 24px rgba(11, 59, 92, 0.18);
+  }
+  .topo {
+    background: linear-gradient(120deg, #0B3B5C 0%, #0E7C86 100%);
+    color: #fff; padding: 26px 30px;
+  }
+  .topo h1 { margin: 0; font-size: 1.5rem; font-weight: 700; letter-spacing: -0.4px; }
+  .topo p { margin: 6px 0 0; opacity: 0.88; font-size: 0.95rem; }
+  .corpo { padding: 30px; display: flex; align-items: center; gap: 18px; }
+
+  .bola {
+    flex: 0 0 auto; width: 38px; height: 38px; border-radius: 50%;
+    border: 4px solid #E4E7EC; border-top-color: var(--marca);
+    animation: roda 0.9s linear infinite;
+  }
+  @keyframes roda { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) {
+    .bola { animation-duration: 2.4s; }
+  }
+
+  .texto strong { display: block; font-size: 1.05rem; }
+  .texto span { display: block; margin-top: 4px; font-size: 0.9rem; color: var(--suave); }
+
+  .barra { height: 4px; background: #E4E7EC; }
+  .barra i { display: block; height: 100%; width: 0; background: var(--marca);
+             transition: width 0.6s linear; }
+
+  .saida { padding: 0 30px 26px; margin: 0; font-size: 0.9rem; color: var(--suave); }
+  .saida a { color: var(--marca); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+  <main class="cartao">
+    <div class="topo">
+      <h1>&#9889; Comparador de Energia</h1>
+      <p>Ofertas comerciais de eletricidade e g&aacute;s natural publicadas pela ERSE</p>
+    </div>
+    <div class="barra"><i id="progresso"></i></div>
+    <div class="corpo">
+      <div class="bola" role="presentation"></div>
+      <div class="texto" role="status" aria-live="polite">
+        <strong id="titulo">A inicializar...</strong>
+        <span id="detalhe">A contactar o servidor.</span>
+      </div>
+    </div>
+    <p class="saida" id="saida" hidden>
+      Est&aacute; a demorar mais do que o costume.
+      <a id="direto" href="#">Abrir a aplica&ccedil;&atilde;o na mesma</a>
+    </p>
+  </main>
+
+<script>
+(function () {
+  "use strict";
+
+  // Endereco da aplicacao no Render. Se o servico tiver outro nome, e esta a
+  // unica linha que precisa de mudar. Tambem se pode passar por ?app=...
+  var APP = "https://comparador-energia.onrender.com";
+
+  var pedido = new URLSearchParams(location.search).get("app");
+  if (pedido && /^https:\/\/[a-z0-9-]+\.onrender\.com\/?$/i.test(pedido)) {
+    APP = pedido.replace(/\/$/, "");
+  }
+
+  var INTERVALO = 2000;   // tempo entre tentativas
+  var ESPERADO = 60000;   // arranque tipico do plano gratuito do Render
+  var DESISTIR = 240000;  // a partir daqui oferece o link a mao
+
+  var titulo = document.getElementById("titulo");
+  var detalhe = document.getElementById("detalhe");
+  var progresso = document.getElementById("progresso");
+  var saida = document.getElementById("saida");
+  var direto = document.getElementById("direto");
+  direto.href = APP;
+
+  var inicio = Date.now();
+
+  // O /_stcore/health responde 200 quando o Streamlit esta pronto a receber
+  // ligacoes e 503 enquanto arranca. Enquanto o Render ainda esta a levantar o
+  // contentor o pedido falha, o que aqui conta como "ainda nao".
+  function pronto() {
+    return fetch(APP + "/_stcore/health", { cache: "no-store", mode: "cors" })
+      .then(function (r) { return r.ok; })
+      .catch(function () { return false; });
+  }
+
+  function contar() {
+    var passou = Date.now() - inicio;
+    progresso.style.width = Math.min(95, (passou / ESPERADO) * 100) + "%";
+
+    if (passou > DESISTIR) {
+      titulo.textContent = "O servidor n\u00e3o respondeu";
+      detalhe.textContent = "Pode ser um problema tempor\u00e1rio do alojamento.";
+      saida.hidden = false;
+    } else if (passou > 90000) {
+      detalhe.textContent = "Ainda a arrancar, est\u00e1 quase.";
+    } else if (passou > 6000) {
+      detalhe.textContent =
+        "O servidor estava a dormir. Costuma demorar cerca de um minuto.";
+    }
+  }
+
+  function tentar() {
+    contar();
+    pronto().then(function (ok) {
+      if (ok) {
+        progresso.style.width = "100%";
+        titulo.textContent = "Pronto";
+        detalhe.textContent = "A abrir a aplica\u00e7\u00e3o.";
+        location.replace(APP);
+        return;
+      }
+      setTimeout(tentar, INTERVALO);
+    });
+  }
+
+  tentar();
+})();
+</script>
+</body>
+</html>

@@ -5,6 +5,10 @@ developmentMode = false
 headless = true
 runOnSave = false
 fileWatcherType = "none"
+# A pagina de espera em docs/index.html esta alojada no GitHub Pages e precisa
+# de ler o /_stcore/health desta aplicacao para saber quando ela ja arrancou.
+# Sem esta linha o navegador barra esse pedido por ser de outra origem.
+corsAllowedOrigins = ["https://cunha6.github.io"]
 
 [browser]
 gatherUsageStats = false
