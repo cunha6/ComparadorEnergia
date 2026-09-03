@@ -1,13 +1,22 @@
 # Servico web para o Render. Em https://dashboard.render.com escolha
 # New > Blueprint e aponte para o repositorio, ou crie um Web Service a mao
 # com o mesmo Build Command e Start Command.
+#
+# A versao do Python esta no ficheiro .python-version, na raiz do repositorio.
+# Sem ele o Render usa a versao dele por omissao, mais antiga do que aquela em
+# que a aplicacao foi testada.
 services:
   - type: web
     name: comparador-energia
     runtime: python
     plan: free
+    # Frankfurt e o centro de dados mais perto de Portugal.
+    region: frankfurt
     buildCommand: pip install -r requirements.txt
     startCommand: streamlit run app.py --server.port $PORT --server.address 0.0.0.0
+    # Endereco que o Streamlit responde sem carregar a aplicacao toda, para o
+    # Render saber se o servico esta de pe.
+    healthCheckPath: /_stcore/health
     envVars:
       # O Render reinicia o contentor com o disco limpo, por isso os CSV vao
       # para uma pasta temporaria e sao descarregados outra vez quando faltam.

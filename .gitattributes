@@ -1,2 +1,5 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# O Render le este ficheiro no Linux, tem de ir com fim de linha LF
+.python-version text eol=lf

@@ -133,6 +133,13 @@ Se preferir criar o servico a mao, New > Web Service, e usar:
    Build Command   pip install -r requirements.txt
    Start Command   streamlit run app.py --server.port $PORT --server.address 0.0.0.0
    Variavel        COMPARADOR_DADOS = /tmp/comparador-energia
+   Variavel        PYTHON_VERSION = 3.13.5
+
+A versao do Python interessa. O Render usa por omissao uma versao mais antiga
+do que aquela em que isto foi testado, e as versoes do requirements.txt podem
+nao ter instalador pronto para ela. Pelo Blueprint isso ja vai resolvido no
+ficheiro .python-version. A mao, e a variavel PYTHON_VERSION acima, e aqui tem
+mesmo de levar os tres numeros.
 
 O main.py nao e usado no servidor, esse so serve para abrir o navegador no
 computador de quem usa o executavel.
@@ -179,4 +186,5 @@ servicos adicionais e acertos de leitura.
    build.bat              gera o executavel
    requirements.txt       bibliotecas, para instalar num servidor
    render.yaml            configuracao do servico web no Render
+   .python-version        versao do Python a usar no Render
    LEIA-ME.txt            este ficheiro
