@@ -17,6 +17,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import pandas as pd  # noqa: E402
+
 import dados  # noqa: E402
 
 
@@ -72,6 +74,44 @@ class TestFamiliaGalp(unittest.TestCase):
         """Sem isto deixavam de vir pre-selecionadas nos filtros."""
         for familia in ("Galp COMBINA", "Galp Casa & Estrada", "Galp Negócios"):
             self.assertIn(familia, dados.PRINCIPAIS, msg=familia)
+
+
+
+class TestOfertaCombina(unittest.TestCase):
+    """A seccao COMBINA tem de se basear numa oferta do Plano COMBINA."""
+
+    def tabela(self, marcas_e_totais):
+        return pd.DataFrame(
+            [
+                {"marca": m, "total": t, "media_mensal": t, "proposta": f"P {m} {t}"}
+                for m, t in marcas_e_totais
+            ]
+        )
+
+    def test_escolhe_a_combina_mais_barata(self):
+        t = self.tabela(
+            [("EDP", 69.5), ("Galp COMBINA", 90.0), ("Galp COMBINA", 85.65)]
+        )
+        linha = dados.oferta_combina(t)
+        self.assertEqual(linha["marca"], "Galp COMBINA")
+        self.assertAlmostEqual(linha["total"], 85.65)
+
+    def test_ignora_a_mais_barata_de_outra_marca(self):
+        """O erro que isto corrige: ancorar as contas na fatura da EDP."""
+        t = self.tabela([("EDP", 69.5), ("Galp COMBINA", 85.65)])
+        self.assertAlmostEqual(dados.oferta_combina(t)["total"], 85.65)
+
+    def test_nao_confunde_com_casa_e_estrada(self):
+        t = self.tabela([("Galp Casa & Estrada", 75.75), ("Galp COMBINA", 85.65)])
+        self.assertAlmostEqual(dados.oferta_combina(t)["total"], 85.65)
+
+    def test_sem_combina_devolve_none(self):
+        t = self.tabela([("EDP", 69.5), ("Galp Casa & Estrada", 75.75)])
+        self.assertIsNone(dados.oferta_combina(t))
+
+    def test_tabela_vazia_devolve_none(self):
+        self.assertIsNone(dados.oferta_combina(pd.DataFrame()))
+        self.assertIsNone(dados.oferta_combina(None))
 
 
 if __name__ == "__main__":

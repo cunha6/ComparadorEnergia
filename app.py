@@ -864,12 +864,14 @@ def _preco_kwh(valor: float | None) -> str:
     return f"{numero(valor, 3)} €/kWh" if valor is not None else "—"
 
 
-def seccao_combina(combina: dict) -> None:
+def seccao_combina(combina: dict, origem: str = "", e_combina: bool = True) -> None:
     """
     A seccao Galp COMBINA, mostrada antes da comparacao entre operadoras.
 
     Todos os valores sao mensais, porque os limites do programa sao mensais.
-    Sem servicos elegiveis a seccao nao aparece.
+    Sem servicos elegiveis a seccao nao aparece. origem e o nome da proposta em
+    que as contas se baseiam, e e_combina diz se essa proposta e mesmo do Plano
+    COMBINA ou se foi preciso recorrer a outra.
     """
     if not combina["elegivel"]:
         return
@@ -889,6 +891,15 @@ def seccao_combina(combina: dict) -> None:
 """,
         unsafe_allow_html=True,
     )
+
+    if origem and e_combina:
+        st.caption(f"Contas feitas sobre a proposta **{origem}**.")
+    elif origem:
+        st.caption(
+            f"Não há ofertas do Plano COMBINA com os filtros escolhidos. "
+            f"As contas usam a proposta mais barata da tabela, **{origem}**, "
+            f"só para dar ideia da ordem de grandeza."
+        )
 
     st.markdown("**A tua energia**")
     coluna1, coluna2, coluna3 = st.columns(3)
@@ -928,7 +939,15 @@ def seccao_combina(combina: dict) -> None:
 
     st.markdown("**Preço do kWh**")
     coluna1, coluna2, coluna3 = st.columns(3)
-    coluna1.metric("Preço normal", _preco_kwh(combina["preco_normal"]))
+    coluna1.metric(
+        "Preço normal",
+        _preco_kwh(combina["preco_normal"]),
+        help=(
+            "A fatura inteira a dividir pelos kWh. É maior do que o preço da "
+            "energia que aparece nas tabelas, porque inclui o termo fixo da "
+            "potência, a contribuição audiovisual, a taxa DGEG e o IVA."
+        ),
+    )
     coluna2.metric("Com benefício Continente", _preco_kwh(combina["preco_continente"]))
     coluna3.metric(
         "Equivalente com benefícios totais",
@@ -1150,11 +1169,23 @@ def resultado_gn(
     return resultado
 
 
-def _mensal(resultado: pd.DataFrame) -> float:
-    """A fatura mensal da oferta mais barata da simulacao."""
+def _ancora_combina(resultado: pd.DataFrame) -> tuple[float, str, bool]:
+    """
+    A fatura mensal em que a seccao COMBINA se baseia.
+
+    Procura a proposta Galp COMBINA mais barata da simulacao. Se o utilizador
+    filtrou a Galp para fora da tabela, usa a oferta mais barata que restou e
+    avisa, para os numeros nao parecerem sair do nada.
+
+    Devolve a fatura mensal, o nome da proposta e se e mesmo uma oferta COMBINA.
+    """
     if resultado.empty:
-        return 0.0
-    return float(resultado.iloc[0]["media_mensal"])
+        return 0.0, "", False
+    linha = dados.oferta_combina(resultado)
+    if linha is not None:
+        return float(linha["media_mensal"]), str(linha["proposta"]), True
+    linha = resultado.iloc[0]
+    return float(linha["media_mensal"]), str(linha["proposta"]), False
 
 
 def simulador_eletricidade(catalogo: dados.Catalogo) -> None:
@@ -1179,14 +1210,17 @@ def simulador_eletricidade(catalogo: dados.Catalogo) -> None:
         f"{len(resultado)} ofertas simuladas para {dias} dias "
         f"({meses} {plural}) e {sum(consumos):.0f} kWh."
     )
+    fatura, origem, e_combina = _ancora_combina(resultado)
     seccao_combina(
         dados.simular_combina(
             eletricidade=True,
             nos=nos,
-            fatura_ele=_mensal(resultado),
+            fatura_ele=fatura,
             kwh_ele=sum(consumos) / meses,
             litros=litros,
-        )
+        ),
+        origem,
+        e_combina,
     )
     podio(resultado)
     st.write("")
@@ -1212,14 +1246,17 @@ def simulador_gas(catalogo: dados.Catalogo) -> None:
     kwh = entradas["kwh"]
     dias = int(round(DIAS_POR_MES * meses))
     st.caption(f"{len(resultado)} ofertas simuladas para {dias} dias e {kwh:.0f} kWh.")
+    fatura, origem, e_combina = _ancora_combina(resultado)
     seccao_combina(
         dados.simular_combina(
             gas=True,
             nos=nos,
-            fatura_gas=_mensal(resultado),
+            fatura_gas=fatura,
             kwh_gas=kwh / meses,
             litros=litros,
-        )
+        ),
+        origem,
+        e_combina,
     )
     podio(resultado)
     st.write("")
@@ -1270,14 +1307,15 @@ def simulador_ele_gas(catalogo: dados.Catalogo) -> None:
         st.warning("Não há ofertas com estes filtros. Alargue os critérios.")
         return
 
-    fatura_ele = _mensal(res_ele)
-    fatura_gn = _mensal(res_gn)
-    st.markdown("**Fatura de energia por mês, somando as duas mais baratas**")
+    fatura_ele, origem_ele, combina_ele = _ancora_combina(res_ele)
+    fatura_gn, origem_gn, combina_gn = _ancora_combina(res_gn)
+    st.markdown("**Fatura de energia por mês, somando as duas propostas Galp**")
     coluna1, coluna2, coluna3 = st.columns(3)
     coluna1.metric("Eletricidade", f"{euros(fatura_ele)}/mês")
     coluna2.metric("Gás natural", f"{euros(fatura_gn)}/mês")
     coluna3.metric("Energia", f"{euros(fatura_ele + fatura_gn)}/mês")
 
+    origens = " · ".join(o for o in (origem_ele, origem_gn) if o)
     seccao_combina(
         dados.simular_combina(
             eletricidade=not res_ele.empty,
@@ -1288,7 +1326,9 @@ def simulador_ele_gas(catalogo: dados.Catalogo) -> None:
             fatura_gas=fatura_gn,
             kwh_gas=ent_gn["kwh"] / meses,
             litros=litros,
-        )
+        ),
+        origens,
+        combina_ele and combina_gn,
     )
 
     if not res_ele.empty:

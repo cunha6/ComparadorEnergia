@@ -618,6 +618,26 @@ def nivel_combina(
     }
 
 
+# Nome da marca das ofertas do Plano COMBINA, depois de familia_galp as separar.
+MARCA_COMBINA = "Galp COMBINA"
+
+
+def oferta_combina(resultado):
+    """
+    A proposta Galp COMBINA mais barata de uma simulacao, ou None.
+
+    E nela que a seccao COMBINA se baseia. Sem isto os beneficios saiam da
+    fatura da oferta mais barata da tabela, que na maior parte dos dias e de
+    outro comercializador.
+    """
+    if resultado is None or resultado.empty or "marca" not in resultado.columns:
+        return None
+    galp = resultado[resultado["marca"] == MARCA_COMBINA]
+    if galp.empty:
+        return None
+    return galp.sort_values("total").iloc[0]
+
+
 def beneficio_continente(valor_mensal: float, percentagem: float) -> dict:
     """Cartao Continente: percentagem sobre o valor mensal, com teto."""
     valor = max(float(valor_mensal), 0.0)
