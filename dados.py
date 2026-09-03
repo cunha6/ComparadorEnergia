@@ -239,6 +239,7 @@ class Catalogo:
         sem_so_novos_clientes: bool = False,
         so_renovavel: bool = False,
         dia: _dt.date | None = None,
+        sem_restricoes: bool = False,
     ) -> pd.DataFrame:
         linhas = self.ele
         linhas = linhas[
@@ -253,6 +254,7 @@ class Catalogo:
             sem_so_novos_clientes=sem_so_novos_clientes,
             so_renovavel=so_renovavel,
             dia=dia,
+            sem_restricoes=sem_restricoes,
         )
         return linhas.sort_values(["preco_1", "termo_fixo"]).reset_index(drop=True)
 
@@ -264,6 +266,7 @@ class Catalogo:
         so_ativas: bool = True,
         sem_so_novos_clientes: bool = False,
         dia: _dt.date | None = None,
+        sem_restricoes: bool = False,
     ) -> pd.DataFrame:
         linhas = self.gn[self.gn["escalao"] == escalao]
         linhas = _aplicar_filtros(
@@ -273,6 +276,7 @@ class Catalogo:
             so_ativas=so_ativas,
             sem_indexadas=False,
             sem_so_novos_clientes=sem_so_novos_clientes,
+            sem_restricoes=sem_restricoes,
             so_renovavel=False,
             dia=dia,
         )
@@ -288,6 +292,7 @@ def _aplicar_filtros(
     sem_so_novos_clientes: bool,
     so_renovavel: bool,
     dia: _dt.date | None,
+    sem_restricoes: bool = False,
 ) -> pd.DataFrame:
     if segmento and segmento != "Todos":
         linhas = linhas[linhas["segmento"].isin([segmento, "Tod"])]
@@ -299,6 +304,8 @@ def _aplicar_filtros(
         linhas = linhas[~linhas["so_novos_clientes"]]
     if so_renovavel and "renovavel" in linhas.columns:
         linhas = linhas[linhas["renovavel"]]
+    if sem_restricoes and "com_restricoes" in linhas.columns:
+        linhas = linhas[~linhas["com_restricoes"]]
     if so_ativas:
         momento = pd.Timestamp(dia or _dt.date.today())
         inicio = linhas["data_ini"]
@@ -325,6 +332,11 @@ COLUNAS_CONDICOES = {
     "FiltroNovosClientes": "so_novos_clientes",
     "FiltroRenovavel_ELE": "renovavel",
     "FiltroTarifaSocial": "tarifa_social",
+    # Diz se a oferta so esta ao alcance de quem pertence a alguma coisa:
+    # associados do ACP, clientes Vodafone, socios de clubes, cartoes de
+    # fidelizacao. O texto explica qual e a condicao.
+    "FiltroRestrições": "com_restricoes",
+    "TxTRestricoesAdic": "restricoes",
     "TxTFidelização": "fidelizacao",
     "TxTPagamento": "pagamento",
     "TxTFatura": "faturacao",
@@ -353,7 +365,13 @@ def _ler_condicoes(caminho: str) -> pd.DataFrame:
     for origem, destino in COLUNAS_CONDICOES.items():
         tabela[destino] = _texto(bruto[origem]) if origem in bruto.columns else ""
 
-    for coluna in ("indexada", "so_novos_clientes", "renovavel", "tarifa_social"):
+    for coluna in (
+        "indexada",
+        "so_novos_clientes",
+        "renovavel",
+        "tarifa_social",
+        "com_restricoes",
+    ):
         tabela[coluna] = _sim(tabela[coluna])
     tabela["data_ini"] = _data(tabela["data_ini"])
     tabela["data_fim"] = _data(tabela["data_fim"])
@@ -447,7 +465,13 @@ def _juntar(precos: pd.DataFrame, condicoes: pd.DataFrame) -> pd.DataFrame:
     if galp.any():
         familias = junto.loc[galp, "proposta"].map(familia_galp)
         junto.loc[galp, "marca"] = familias.fillna("Galp")
-    for coluna in ("indexada", "so_novos_clientes", "renovavel", "tarifa_social"):
+    for coluna in (
+        "indexada",
+        "so_novos_clientes",
+        "renovavel",
+        "tarifa_social",
+        "com_restricoes",
+    ):
         junto[coluna] = junto[coluna].fillna(False).astype(bool)
     for coluna in condicoes.columns:
         if junto[coluna].dtype == object or str(junto[coluna].dtype) == "string":

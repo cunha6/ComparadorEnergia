@@ -457,6 +457,7 @@ def filtros_comuns(catalogo: dados.Catalogo, energia: str, chave: str) -> dict:
     restricoes = [
         "Apenas ofertas em vigor hoje",
         "Excluir ofertas só para novos clientes",
+        "Excluir ofertas com condições de acesso",
     ]
     predefinidas = ["Apenas ofertas em vigor hoje"]
     if energia == "ele":
@@ -488,6 +489,12 @@ def filtros_comuns(catalogo: dados.Catalogo, energia: str, chave: str) -> dict:
             restricoes,
             default=predefinidas,
             key=f"opc_{chave}",
+            help=(
+                "«Condições de acesso» são ofertas reservadas a quem pertence a "
+                "alguma coisa: associados do ACP, clientes Vodafone ou Santander, "
+                "sócios de clubes, cartões associados. Costumam ser das mais "
+                "baratas da tabela, mas só valem se o caso se aplicar a si."
+            ),
         )
 
     filtros = {
@@ -495,6 +502,7 @@ def filtros_comuns(catalogo: dados.Catalogo, energia: str, chave: str) -> dict:
         "comercializadores": marcas,
         "so_ativas": "Apenas ofertas em vigor hoje" in opcoes,
         "sem_so_novos_clientes": "Excluir ofertas só para novos clientes" in opcoes,
+        "sem_restricoes": "Excluir ofertas com condições de acesso" in opcoes,
     }
     if energia == "ele":
         filtros["sem_indexadas"] = "Excluir preços indexados" in opcoes
@@ -822,6 +830,7 @@ def mostrar_resultado_simulacao(resultado: pd.DataFrame, cor: str) -> None:
         "custo_potencia",
         "encargos",
         "iva",
+        "restricoes",
         "link_oferta",
     ]
     config = {
@@ -850,6 +859,12 @@ def mostrar_resultado_simulacao(resultado: pd.DataFrame, cor: str) -> None:
             "propostas e mudam-se em «Impostos e encargos».",
         ),
         "iva": st.column_config.NumberColumn("IVA €", format="%.2f"),
+        "restricoes": st.column_config.TextColumn(
+            "Condições de acesso",
+            width="medium",
+            help="Quem pode contratar esta oferta. Vazio quer dizer sem "
+            "condições especiais.",
+        ),
         "link_oferta": st.column_config.LinkColumn(
             "Oferta", display_text="abrir", width="small"
         ),
