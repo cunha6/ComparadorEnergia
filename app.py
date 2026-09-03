@@ -511,12 +511,14 @@ def caixas(
     escolhidas = []
     grelha = st.columns(colunas)
     for indice, opcao in enumerate(opcoes):
+        # O valor de origem e semeado no estado em vez de ir no value=. Com os
+        # dois, o Streamlit avisa em cada execucao que a chave tem um valor por
+        # omissao e tambem e escrita pelos atalhos.
+        chave_caixa = _chave_caixa(chave, opcao)
+        if chave_caixa not in st.session_state:
+            st.session_state[chave_caixa] = opcao in predefinidas
         with grelha[indice % colunas]:
-            marcada = st.checkbox(
-                formatar(opcao),
-                value=opcao in predefinidas,
-                key=_chave_caixa(chave, opcao),
-            )
+            marcada = st.checkbox(formatar(opcao), key=chave_caixa)
         if marcada:
             escolhidas.append(opcao)
     return escolhidas
@@ -548,6 +550,33 @@ def atalhos_caixas(opcoes: list, predefinidas: list, chave: str) -> None:
     )
 
 
+def menu_caixas(
+    rotulo: str,
+    opcoes: list,
+    predefinidas: list,
+    chave: str,
+    colunas: int = 1,
+    formatar=str,
+    atalhos: bool = False,
+    ajuda: str | None = None,
+) -> list:
+    """
+    Um botao que abre com uma caixa por opcao la dentro.
+
+    Fica compacto como um select mas cada opcao tem o seu visto, que e o que
+    faltava ao multiselect: com muitas escolhidas as etiquetas enchiam a caixa
+    e deixava de dar para navegar. O rotulo diz quantas estao ligadas sem ser
+    preciso abrir.
+    """
+    quantas = contar_marcadas(opcoes, predefinidas, chave)
+    with st.popover(f"{rotulo} ({quantas} de {len(opcoes)})", width="stretch"):
+        if ajuda:
+            st.caption(ajuda)
+        if atalhos:
+            atalhos_caixas(opcoes, predefinidas, chave)
+        return caixas(opcoes, predefinidas, chave, colunas, formatar)
+
+
 def filtros_comuns(catalogo: dados.Catalogo, energia: str, chave: str) -> dict:
     """Linha de filtros partilhada pelas tabelas e pelo simulador."""
     restricoes = [
@@ -567,7 +596,7 @@ def filtros_comuns(catalogo: dados.Catalogo, energia: str, chave: str) -> dict:
     disponiveis = catalogo.comercializadores(energia)
     principais = [m for m in dados.PRINCIPAIS if m in disponiveis]
 
-    coluna1, _ = st.columns([1, 4])
+    coluna1, coluna2, coluna3 = st.columns([1.2, 2, 2])
     with coluna1:
         segmento = st.selectbox(
             "Segmento",
@@ -575,24 +604,33 @@ def filtros_comuns(catalogo: dados.Catalogo, energia: str, chave: str) -> dict:
             format_func=lambda s: dados.SEGMENTOS.get(s, s),
             key=f"seg_{chave}",
         )
-
-    st.markdown("**Restrições**")
-    st.caption(
-        "«Condições de acesso» são ofertas reservadas a quem pertence a alguma "
-        "coisa: associados do ACP, clientes Vodafone ou Santander, sócios de "
-        "clubes. Costumam ser das mais baratas da tabela, mas só valem se o caso "
-        "se aplicar a si. A Galp COMBINA fica sempre na tabela: a condição dela é "
-        "associar o Cartão Continente ao Mundo Galp, que é grátis e está aberto a "
-        "qualquer pessoa."
-    )
-    opcoes = caixas(restricoes, predefinidas, f"opc_{chave}", colunas=3)
-
-    quantos = contar_marcadas(disponiveis, principais, f"com_{chave}")
-    with st.expander(f"Comercializadores ({quantos} de {len(disponiveis)})"):
-        atalhos_caixas(disponiveis, principais, f"com_{chave}")
-        marcas = caixas(disponiveis, principais, f"com_{chave}", colunas=4)
-        if not marcas:
-            st.caption("Sem nenhum marcado aparecem todos.")
+    with coluna2:
+        st.markdown("**Restrições**")
+        opcoes = menu_caixas(
+            "Restrições",
+            restricoes,
+            predefinidas,
+            f"opc_{chave}",
+            ajuda=(
+                "«Condições de acesso» são ofertas reservadas a quem pertence a "
+                "alguma coisa: associados do ACP, clientes Vodafone ou Santander, "
+                "sócios de clubes. Costumam ser das mais baratas da tabela, mas "
+                "só valem se o caso se aplicar a si. A Galp COMBINA fica sempre "
+                "na tabela: a condição dela é associar o Cartão Continente ao "
+                "Mundo Galp, que é grátis e está aberto a qualquer pessoa."
+            ),
+        )
+    with coluna3:
+        st.markdown("**Comercializadores**")
+        marcas = menu_caixas(
+            "Comercializadores",
+            disponiveis,
+            principais,
+            f"com_{chave}",
+            colunas=2,
+            atalhos=True,
+            ajuda="Sem nenhum marcado aparecem todos.",
+        )
 
     filtros = {
         "segmento": segmento,
@@ -766,12 +804,14 @@ def separador_eletricidade(catalogo: dados.Catalogo) -> None:
         )
     with coluna2:
         st.markdown("**Potências contratadas (kVA)**")
-        potencias = caixas(
+        potencias = menu_caixas(
+            "Potências",
             disponiveis,
             habituais,
             "pot_tab",
-            colunas=7,
+            colunas=3,
             formatar=dados.rotulo_potencia,
+            atalhos=True,
         )
     if not potencias:
         st.warning("Escolha pelo menos uma potência.")
