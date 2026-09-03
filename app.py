@@ -487,15 +487,16 @@ def rotulo_escolhidas(
     predefinidas: list,
     chave: str,
     formatar=str,
-    maximo: int = 6,
+    maximo: int = 20,
     vazio: str = "Nenhum",
 ) -> str:
     """
     O que esta ligado, para o rotulo do menu.
 
-    Serve para o botao dizer os filtros em vez de um numero, como o multiselect
-    mostrava. Com muitas opcoes corta e conta as que sobram, senao o botao
-    ficava com trinta nomes.
+    Sao etiquetas azuis, como as do multiselect. O botao nao quebra linha, por
+    isso as que nao couberem ficam cortadas a direita: quem quiser ve-las todas
+    abre o menu. O maximo e so uma travagem para o rotulo nao levar texto que
+    nunca chega a ser desenhado.
     """
     ligadas = [
         opcao
@@ -503,11 +504,15 @@ def rotulo_escolhidas(
         if st.session_state.get(_chave_caixa(chave, opcao), opcao in predefinidas)
     ]
     if not ligadas:
-        return vazio
-    nomes = [formatar(opcao) for opcao in ligadas]
-    if len(nomes) > maximo:
-        return " · ".join(nomes[:maximo]) + f"  +{len(nomes) - maximo}"
-    return " · ".join(nomes)
+        return f":gray-badge[{vazio}]"
+    # Os parenteses retos partiriam a directiva do badge.
+    nomes = [
+        formatar(opcao).replace("[", "(").replace("]", ")") for opcao in ligadas[:maximo]
+    ]
+    etiquetas = " ".join(f":blue-badge[{nome}]" for nome in nomes)
+    if len(ligadas) > maximo:
+        etiquetas += f" :gray-badge[+{len(ligadas) - maximo}]"
+    return etiquetas
 
 
 def caixas(
@@ -575,7 +580,7 @@ def menu_caixas(
     formatar=str,
     atalhos: bool = False,
     ajuda: str | None = None,
-    maximo: int = 6,
+    maximo: int = 20,
 ) -> list:
     """
     Um botao que abre com uma caixa por opcao la dentro.
@@ -586,7 +591,7 @@ def menu_caixas(
     etiquetas enchiam a caixa e deixava de dar para navegar.
     """
     escolhidas = rotulo_escolhidas(opcoes, predefinidas, chave, formatar, maximo)
-    with st.popover(escolhidas, width="stretch", wrap=True, help=rotulo):
+    with st.popover(escolhidas, width="stretch", wrap=False, help=rotulo):
         if ajuda:
             st.caption(ajuda)
         if atalhos:
@@ -602,7 +607,8 @@ def menu_escolha(opcoes: list, chave: str, formatar=str, ajuda: str | None = Non
     outra altura e outra moldura.
     """
     atual = st.session_state.get(chave, opcoes[0])
-    with st.popover(formatar(atual), width="stretch", help=ajuda):
+    etiqueta = f":blue-badge[{formatar(atual)}]"
+    with st.popover(etiqueta, width="stretch", wrap=False, help=ajuda):
         return st.radio(
             "Segmento",
             opcoes,
@@ -666,7 +672,6 @@ def filtros_comuns(catalogo: dados.Catalogo, energia: str, chave: str) -> dict:
             colunas=2,
             atalhos=True,
             ajuda="Sem nenhum marcado aparecem todos.",
-            maximo=4,
         )
 
     filtros = {
@@ -849,7 +854,6 @@ def separador_eletricidade(catalogo: dados.Catalogo) -> None:
             colunas=3,
             formatar=dados.rotulo_potencia,
             atalhos=True,
-            maximo=8,
         )
     if not potencias:
         st.warning("Escolha pelo menos uma potência.")
