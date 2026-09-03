@@ -146,6 +146,36 @@ ESTILO = """
 .combina .beneficios {margin-top: 12px; font-size: 0.95rem; color: #10151F;
   line-height: 1.8;}
 .combina .beneficios b {color: #B54708;}
+.combina .fonte {margin-top: 10px; font-size: 0.82rem; color: #5B6472;}
+.combina .fonte b {color: #10151F;}
+.combina .seccao {
+  margin-top: 18px; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.8px;
+  text-transform: uppercase; color: #B54708;
+}
+.combina .grelha {
+  display: grid; gap: 10px; margin-top: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+}
+.combina .celula {
+  background: #fff; border: 1px solid #F0D2B4; border-radius: 10px;
+  padding: 10px 14px;
+}
+.combina .celula.destaque {border-color: #B54708; background: #FFF3E8;}
+.combina .celula .rotulo {font-size: 0.72rem; letter-spacing: 0.4px;
+  text-transform: uppercase; color: #5B6472;}
+.combina .celula .valor {font-size: 1.2rem; font-weight: 700; color: #10151F;
+  margin-top: 3px; line-height: 1.25;}
+.combina .celula.destaque .valor {color: #B54708;}
+.combina .celula .nota {font-size: 0.76rem; color: #5B6472; margin-top: 3px;}
+.combina .celula[title] {cursor: help;}
+.combina .celula[title] .rotulo {border-bottom: 1px dotted #C9A227;
+  display: inline-block; padding-bottom: 1px;}
+.combina .conta {
+  margin-top: 14px; padding: 12px 16px; border-radius: 10px;
+  background: #B54708; color: #fff; font-size: 1rem; font-weight: 600;
+}
+.combina .aviso {margin-top: 12px; font-size: 0.8rem; color: #5B6472;
+  line-height: 1.55;}
 
 div[data-testid="stMetricValue"] {font-size: 1.5rem;}
 section[data-testid="stSidebar"] {background: #F6F8FA; border-right: 1px solid #E4E7EC;}
@@ -786,6 +816,7 @@ def mostrar_resultado_simulacao(resultado: pd.DataFrame, cor: str) -> None:
         "preco_kwh_total",
         "custo_energia",
         "custo_potencia",
+        "encargos",
         "iva",
         "link_oferta",
     ]
@@ -807,6 +838,13 @@ def mostrar_resultado_simulacao(resultado: pd.DataFrame, cor: str) -> None:
         ),
         "custo_energia": st.column_config.NumberColumn("Energia €", format="%.2f"),
         "custo_potencia": st.column_config.NumberColumn("Potência €", format="%.2f"),
+        "encargos": st.column_config.NumberColumn(
+            "Encargos €",
+            format="%.2f",
+            help="Na eletricidade, a contribuição audiovisual e a taxa DGEG. "
+            "No gás, os outros encargos que indicar. São iguais em todas as "
+            "propostas e mudam-se em «Impostos e encargos».",
+        ),
         "iva": st.column_config.NumberColumn("IVA €", format="%.2f"),
         "link_oferta": st.column_config.LinkColumn(
             "Oferta", display_text="abrir", width="small"
@@ -877,17 +915,149 @@ def _preco_kwh(valor: float | None) -> str:
     return f"{numero(valor, 3)} €/kWh" if valor is not None else "—"
 
 
+def _celula(rotulo: str, valor: str, nota: str = "", dica: str = "", forte=False):
+    """Uma celula da grelha dentro do cartao COMBINA."""
+    classe = "celula destaque" if forte else "celula"
+    atributo = f' title="{dica}"' if dica else ""
+    linha_nota = f'<div class="nota">{nota}</div>' if nota else ""
+    return (
+        f'<div class="{classe}"{atributo}>'
+        f'<div class="rotulo">{rotulo}</div>'
+        f'<div class="valor">{valor}</div>'
+        f"{linha_nota}</div>"
+    )
+
+
+def _grelha(*celulas: str) -> str:
+    return f'<div class="grelha">{"".join(celulas)}</div>'
+
+
 def seccao_combina(combina: dict, origem: str = "", e_combina: bool = True) -> None:
     """
     A seccao Galp COMBINA, mostrada antes da comparacao entre operadoras.
 
+    Vai toda num bloco de HTML, dentro do mesmo cartao, porque os componentes
+    do Streamlit nao se conseguem por dentro de uma div nossa. As explicacoes
+    que noutros sitios sao o help do componente aqui sao o title da celula, que
+    o navegador mostra ao passar o rato.
+
     Todos os valores sao mensais, porque os limites do programa sao mensais.
-    Sem servicos elegiveis a seccao nao aparece. origem e o nome da proposta em
-    que as contas se baseiam, e e_combina diz se essa proposta e mesmo do Plano
-    COMBINA ou se foi preciso recorrer a outra.
+    Sem servicos elegiveis a seccao nao aparece.
     """
     if not combina["elegivel"]:
         return
+
+    percentagem = numero(combina["continente_percentagem"], 0)
+    litros = f"{combina['litros']:,.0f}".replace(",", " ")
+    litros_ok = f"{combina['litros_elegiveis']:,.0f}".replace(",", " ")
+    kwh = f"{combina['kwh_total']:,.0f}".replace(",", " ")
+
+    if origem and e_combina:
+        fonte = f'<div class="fonte">Contas feitas sobre a proposta <b>{origem}</b>.</div>'
+    elif origem:
+        fonte = (
+            f'<div class="fonte">Não há ofertas do Plano COMBINA com estes filtros. '
+            f"As contas usam a proposta mais barata da tabela, <b>{origem}</b>, "
+            f"só para dar ideia da ordem de grandeza.</div>"
+        )
+    else:
+        fonte = ""
+
+    precos = _grelha(
+        _celula(
+            "Preço normal",
+            _preco_kwh(combina["preco_normal"]),
+            "só a energia",
+            "O preço da energia, sem termo fixo, contribuição audiovisual, "
+            "taxa DGEG nem IVA. É sobre esta parcela que incide a percentagem "
+            "do Continente.",
+        ),
+        _celula(
+            "Com Continente",
+            _preco_kwh(combina["preco_continente"]),
+            f"menos {percentagem}%",
+            f"O preço da energia depois de retirados os {percentagem}% que "
+            f"voltam no Cartão Continente.",
+        ),
+        _celula(
+            "Com Continente e Galp",
+            _preco_kwh(combina["preco_equivalente"]),
+            "preço equivalente",
+            "Junta também a poupança em combustível. É uma métrica de "
+            "comparação: a Galp desconta nos abastecimentos, não no preço do "
+            "kWh. Nunca desce abaixo de zero.",
+            forte=True,
+        ),
+    )
+
+    energia = _grelha(
+        _celula("Consumo", f"{kwh} kWh", "por mês"),
+        _celula(
+            "Custo da energia",
+            euros(combina["custo_energia"]),
+            "por mês",
+            "O preço por kWh vezes o consumo. É a base do desconto Continente.",
+        ),
+        _celula(
+            "Fatura de energia",
+            euros(combina["fatura_energia"]),
+            "por mês",
+            "A fatura toda desta proposta, já com termo fixo, encargos e IVA. "
+            "É o valor que aparece na tabela das ofertas, mais abaixo.",
+        ),
+        _celula(
+            "Poupança Continente",
+            euros(combina["poupanca_continente"]),
+            f"{percentagem}% da energia",
+            f"{percentagem}% sobre o custo da energia, até ao limite de "
+            f"{euros(dados.COMBINA_MAX_COMPRAS)} por mês.",
+        ),
+    )
+
+    combustivel = _grelha(
+        _celula("Combustível", f"{litros} L", "por mês"),
+        _celula(
+            "Litros elegíveis",
+            f"{litros_ok} L",
+            "contam para o desconto",
+            f"O programa conta até {dados.COMBINA_MAX_LITROS:.0f} L por mês e "
+            f"{dados.COMBINA_MAX_LITROS_ABASTECIMENTO:.0f} L por abastecimento.",
+        ),
+        _celula(
+            "Desconto Galp",
+            f"{numero(combina['galp_por_litro'], 2)} €/L",
+            "no abastecimento",
+        ),
+        _celula(
+            "Poupança Galp",
+            euros(combina["poupanca_galp"]),
+            "por mês",
+            "Litros elegíveis vezes o desconto por litro.",
+        ),
+    )
+
+    avisos = []
+    if combina["continente_limitado"]:
+        avisos.append(
+            f"O custo da energia passa os {euros(dados.COMBINA_MAX_COMPRAS)} "
+            f"elegíveis por mês, por isso a percentagem foi aplicada só a esse valor."
+        )
+    if combina["litros_limitado"]:
+        avisos.append(
+            f"Introduziu {combina['litros']:.0f} L, mas só "
+            f"{combina['litros_elegiveis']:.0f} L contam para o desconto."
+        )
+    avisos.append(
+        "O valor final junta duas coisas de natureza diferente: a poupança do "
+        "Continente vem em cartão e a da Galp é desconto em combustível, não um "
+        "abatimento na fatura de energia. Serve para comparar o valor total do "
+        "pacote, não para prever o que vem no papel da fatura."
+    )
+    if combina["valor_final_negativo"]:
+        avisos.append(
+            "Aqui os benefícios ultrapassam a fatura de energia, daí o valor "
+            "final aparecer negativo."
+        )
 
     st.markdown(
         f"""
@@ -896,134 +1066,39 @@ def seccao_combina(combina: dict, origem: str = "", e_combina: bool = True) -> N
   <div class="nivel">COMBINA {combina['nivel']}</div>
   <div class="servicos">{_linha_servicos(combina['servicos'])}</div>
   <div class="beneficios">
-    <b>{numero(combina['continente_percentagem'], 0)}%</b> para o Cartão Continente
+    <b>{percentagem}%</b> para o Cartão Continente
     &nbsp;&middot;&nbsp;
     <b>{numero(combina['galp_por_litro'], 2)} €/L</b> de desconto na Galp
   </div>
+  {fonte}
+
+  <div class="seccao">Preço da energia por kWh</div>
+  {precos}
+
+  <div class="seccao">A tua energia</div>
+  {energia}
+
+  <div class="seccao">O teu combustível</div>
+  {combustivel}
+
+  <div class="seccao">Contas finais</div>
+  {_grelha(
+      _celula("Fatura de energia", euros(combina["fatura_energia"]), "por mês"),
+      _celula("Poupança total", euros(combina["poupanca_total"]), "por mês"),
+      _celula("Valor final", euros(combina["valor_final"]), "por mês", forte=True),
+  )}
+  <div class="conta">
+    {euros(combina['fatura_energia'])}
+    &minus; {euros(combina['poupanca_continente'])}
+    &minus; {euros(combina['poupanca_galp'])}
+    = {euros(combina['valor_final'])} por mês
+  </div>
+
+  <div class="aviso">{"<br>".join(avisos)}</div>
 </div>
 """,
         unsafe_allow_html=True,
     )
-
-    if origem and e_combina:
-        st.caption(f"Contas feitas sobre a proposta **{origem}**.")
-    elif origem:
-        st.caption(
-            f"Não há ofertas do Plano COMBINA com os filtros escolhidos. "
-            f"As contas usam a proposta mais barata da tabela, **{origem}**, "
-            f"só para dar ideia da ordem de grandeza."
-        )
-
-    st.markdown("**Preço da energia por kWh**")
-    coluna1, coluna2, coluna3 = st.columns(3)
-    coluna1.metric(
-        "Preço normal",
-        _preco_kwh(combina["preco_normal"]),
-        help=(
-            "Só a energia, sem termo fixo, contribuição audiovisual, taxa DGEG "
-            "nem IVA. É a parcela sobre a qual incide a percentagem do "
-            "Continente."
-        ),
-    )
-    coluna2.metric(
-        "Com benefício Continente",
-        _preco_kwh(combina["preco_continente"]),
-        delta=(
-            f"-{numero(combina['continente_percentagem'], 0)}%"
-            if combina["preco_normal"] is not None
-            else None
-        ),
-        delta_color="inverse",
-    )
-    coluna3.metric(
-        "Consumo", f"{combina['kwh_total']:,.0f} kWh/mês".replace(",", " ")
-    )
-
-    st.markdown("**A tua energia**")
-    coluna1, coluna2, coluna3 = st.columns(3)
-    coluna1.metric(
-        "Custo da energia",
-        f"{euros(combina['custo_energia'])}/mês",
-        help="O preço por kWh vezes o consumo. É a base do desconto Continente.",
-    )
-    coluna2.metric(
-        "Fatura de energia",
-        f"{euros(combina['fatura_energia'])}/mês",
-        help=(
-            "A fatura toda desta proposta, já com termo fixo, contribuição "
-            "audiovisual, taxa DGEG e IVA. É o valor que aparece na tabela das "
-            "ofertas, mais abaixo."
-        ),
-    )
-    coluna3.metric(
-        "Poupança Continente",
-        f"{euros(combina['poupanca_continente'])}/mês",
-        help=(
-            f"{numero(combina['continente_percentagem'], 0)}% sobre o custo da "
-            f"energia, até ao limite de {euros(dados.COMBINA_MAX_COMPRAS)} por mês."
-        ),
-    )
-    if combina["continente_limitado"]:
-        st.caption(
-            f"O custo da energia passa os {euros(dados.COMBINA_MAX_COMPRAS)} "
-            f"elegíveis por mês, por isso a percentagem foi aplicada só a esse valor."
-        )
-
-    st.markdown("**O teu combustível**")
-    coluna1, coluna2, coluna3 = st.columns(3)
-    coluna1.metric("Combustível", f"{combina['litros']:,.0f} L/mês".replace(",", " "))
-    coluna2.metric(
-        "Litros elegíveis",
-        f"{combina['litros_elegiveis']:,.0f} L".replace(",", " "),
-        help=(
-            f"O programa conta até {dados.COMBINA_MAX_LITROS:.0f} L por mês e "
-            f"{dados.COMBINA_MAX_LITROS_ABASTECIMENTO:.0f} L por abastecimento."
-        ),
-    )
-    coluna3.metric("Poupança Galp", f"{euros(combina['poupanca_galp'])}/mês")
-    if combina["litros_limitado"]:
-        st.caption(
-            f"Introduziu {combina['litros']:.0f} L, mas só "
-            f"{combina['litros_elegiveis']:.0f} L contam para o desconto."
-        )
-
-    st.markdown("**Contas finais**")
-    coluna1, coluna2, coluna3 = st.columns(3)
-    coluna1.metric("Fatura de energia", f"{euros(combina['fatura_energia'])}/mês")
-    coluna2.metric(
-        "Poupança total COMBINA",
-        f"{euros(combina['poupanca_total'])}/mês",
-        help=(
-            f"{euros(combina['poupanca_continente'])} no Continente mais "
-            f"{euros(combina['poupanca_galp'])} em combustível."
-        ),
-    )
-    coluna3.metric(
-        "Valor final",
-        f"{euros(combina['valor_final'])}/mês",
-        help="Fatura de energia menos a poupança do Continente e a da Galp.",
-    )
-
-    st.success(
-        f"**{euros(combina['fatura_energia'])} "
-        f"− {euros(combina['poupanca_continente'])} "
-        f"− {euros(combina['poupanca_galp'])} "
-        f"= {euros(combina['valor_final'])} por mês**",
-        icon="💳",
-    )
-
-    aviso = (
-        "O valor final junta duas coisas de natureza diferente: a poupança do "
-        "Continente vem em cartão e a da Galp é desconto em combustível, não um "
-        "abatimento na fatura de energia. Serve para comparar o valor total do "
-        "pacote, não para prever o que vem no papel da fatura."
-    )
-    if combina["valor_final_negativo"]:
-        aviso += (
-            " Aqui os benefícios ultrapassam a fatura de energia, daí o valor "
-            "final aparecer negativo."
-        )
-    st.caption(aviso)
 
 
 def entradas_ele(
