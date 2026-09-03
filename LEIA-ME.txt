@@ -86,11 +86,12 @@ Separador "Gas natural"
    O mesmo, por escalao de consumo.
 
 Separador "Simulador"
-   Tem dois sub-separadores, um para eletricidade e outro para gas natural.
+   Tem tres sub-separadores: eletricidade, gas natural, e os dois juntos.
    Indicar o periodo em meses e o consumo. O resultado sao tres cartoes com as
    ofertas mais baratas, a tabela com energia, potencia e IVA, e o grafico das
    mais baratas. Em "Impostos e encargos" pode ajustar o IVA, a taxa DGEG e a
-   contribuicao audiovisual.
+   contribuicao audiovisual. Ha ainda os campos do Galp COMBINA, explicados na
+   seccao 7.
 
 Separador "Dados"
    Origem e datas dos ficheiros, e as condicoes comerciais detalhadas de
@@ -174,7 +175,43 @@ O total e uma estimativa. A fatura real pode variar com descontos,
 servicos adicionais e acertos de leitura.
 
 --------------------------------------------------------------------
-7. FICHEIROS DO PROJETO
+7. SIMULADOR E GALP COMBINA
+--------------------------------------------------------------------
+
+O simulador tem tres modalidades:
+
+   Eletricidade
+   Gas Natural
+   Eletricidade + Gas Natural
+
+Em qualquer delas ha dois campos extra, "Tem NOS em casa?" e os litros de
+combustivel por mes. Servem para o Galp COMBINA, que aparece como uma seccao
+nos resultados, antes da comparacao entre operadoras. O nivel e detetado
+sozinho a partir das energias da modalidade escolhida mais o NOS, e nao ha
+modalidade de simulacao chamada COMBINA.
+
+   1 servico   COMBINA 1    2% Continente    0,20 EUR/L Galp
+   2 servicos  COMBINA 2    5% Continente    0,25 EUR/L Galp
+   3 servicos  COMBINA 3   10% Continente    0,30 EUR/L Galp
+
+Limites mensais: 450 EUR de compras elegiveis para o Continente e 250 L de
+combustivel. O programa tem tambem 60 L por abastecimento, que fica so como
+regra informativa porque o simulador pergunta o consumo do mes inteiro.
+
+O beneficio da Galp e sobre combustivel e nao se subtrai a fatura de energia.
+Aparece na poupanca total e num preco equivalente por kWh, que serve so para
+comparar e nunca desce abaixo de zero.
+
+Os valores estao todos em dados.py, em COMBINA_NIVEIS, COMBINA_MAX_COMPRAS e
+COMBINA_MAX_LITROS. Para os mudar, muda-se ai e mais nada.
+
+Os testes correm da raiz do repositorio, sem instalar nada:
+
+   python -m unittest discover -s tests -v
+
+
+--------------------------------------------------------------------
+8. FICHEIROS DO PROJETO
 --------------------------------------------------------------------
 
    main.py                arranca o servidor e abre o navegador
@@ -186,5 +223,6 @@ servicos adicionais e acertos de leitura.
    build.bat              gera o executavel
    requirements.txt       bibliotecas, para instalar num servidor
    render.yaml            configuracao do servico web no Render
+   tests\test_combina.py  testes das regras do Galp COMBINA
    .python-version        versao do Python a usar no Render
    LEIA-ME.txt            este ficheiro

@@ -129,6 +129,24 @@ ESTILO = """
 .podio .unidade {font-size: 0.8rem; color: #5B6472; font-weight: 500;}
 .podio .poupanca {font-size: 0.84rem; color: #0E7C86; font-weight: 600; margin-top: 4px;}
 
+/* seccao do Galp COMBINA, no mesmo registo quente do gas natural */
+.combina {
+  border: 1px solid #F0D2B4; border-left: 5px solid #B54708; border-radius: 14px;
+  background: #FDF7F1; padding: 18px 22px; margin: 4px 0 14px;
+}
+.combina .titulo {font-size: 0.75rem; font-weight: 700; letter-spacing: 1px;
+  text-transform: uppercase; color: #5B6472;}
+.combina .nivel {font-size: 1.6rem; font-weight: 700; color: #B54708; margin-top: 2px;}
+.combina .servicos {margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px;}
+.combina .servico {
+  font-size: 0.86rem; padding: 4px 12px; border-radius: 999px;
+  background: #fff; border: 1px solid #F0D2B4; color: #10151F;
+}
+.combina .servico.nao {color: #8A93A0; border-color: #E4E7EC; background: #F6F8FA;}
+.combina .beneficios {margin-top: 12px; font-size: 0.95rem; color: #10151F;
+  line-height: 1.8;}
+.combina .beneficios b {color: #B54708;}
+
 div[data-testid="stMetricValue"] {font-size: 1.5rem;}
 section[data-testid="stSidebar"] {background: #F6F8FA; border-right: 1px solid #E4E7EC;}
 .rodape {color: #5B6472; font-size: 0.82rem; margin-top: 30px; line-height: 1.6;}
@@ -801,34 +819,178 @@ def mostrar_resultado_simulacao(resultado: pd.DataFrame, cor: str) -> None:
     )
 
 
-def simulador_eletricidade(catalogo: dados.Catalogo) -> None:
-    potencias = catalogo.potencias()
-    coluna1, coluna2, coluna3 = st.columns(3)
+def campos_combina(sufixo: str) -> tuple[bool, float]:
+    """
+    Os dois campos extra que alimentam o Galp COMBINA.
+
+    A eletricidade e o gas nao se perguntam aqui: saem da modalidade que o
+    utilizador escolheu no simulador.
+    """
+    coluna1, coluna2 = st.columns([1, 1])
     with coluna1:
+        nos = st.checkbox(
+            "Tem NOS em casa?",
+            value=False,
+            key=f"nos_{sufixo}",
+            help="Conta como um serviço elegível para o Galp COMBINA.",
+        )
+    with coluna2:
+        litros = st.number_input(
+            "Combustível (L/mês)",
+            min_value=0.0,
+            value=0.0,
+            step=5.0,
+            key=f"lit_{sufixo}",
+            help=(
+                f"Contam até {dados.COMBINA_MAX_LITROS:.0f} L por mês. "
+                f"O programa tem também um limite de "
+                f"{dados.COMBINA_MAX_LITROS_ABASTECIMENTO:.0f} L por abastecimento."
+            ),
+        )
+    return nos, float(litros)
+
+
+def _linha_servicos(servicos: dict) -> str:
+    partes = []
+    for chave, etiqueta in dados.NOMES_SERVICOS_COMBINA.items():
+        tem = servicos.get(chave, False)
+        classe = "servico" if tem else "servico nao"
+        marca = "&#10003;" if tem else "&#10007;"
+        partes.append(f'<span class="{classe}">{marca} {etiqueta}</span>')
+    return "".join(partes)
+
+
+def _preco_kwh(valor: float | None) -> str:
+    return f"{numero(valor, 3)} €/kWh" if valor is not None else "—"
+
+
+def seccao_combina(combina: dict) -> None:
+    """
+    A seccao Galp COMBINA, mostrada antes da comparacao entre operadoras.
+
+    Todos os valores sao mensais, porque os limites do programa sao mensais.
+    Sem servicos elegiveis a seccao nao aparece.
+    """
+    if not combina["elegivel"]:
+        return
+
+    st.markdown(
+        f"""
+<div class="combina">
+  <div class="titulo">Galp COMBINA</div>
+  <div class="nivel">COMBINA {combina['nivel']}</div>
+  <div class="servicos">{_linha_servicos(combina['servicos'])}</div>
+  <div class="beneficios">
+    <b>{numero(combina['continente_percentagem'], 0)}%</b> para o Cartão Continente
+    &nbsp;&middot;&nbsp;
+    <b>{numero(combina['galp_por_litro'], 2)} €/L</b> de desconto na Galp
+  </div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+
+    st.markdown("**A tua energia**")
+    coluna1, coluna2, coluna3 = st.columns(3)
+    coluna1.metric("Consumo", f"{combina['kwh_total']:,.0f} kWh/mês".replace(",", " "))
+    coluna2.metric("Fatura de energia", f"{euros(combina['fatura_energia'])}/mês")
+    coluna3.metric(
+        "Poupança Continente",
+        f"{euros(combina['poupanca_continente'])}/mês",
+        help=(
+            f"{numero(combina['continente_percentagem'], 0)}% sobre a fatura, "
+            f"até ao limite de {euros(dados.COMBINA_MAX_COMPRAS)} por mês."
+        ),
+    )
+    if combina["continente_limitado"]:
+        st.caption(
+            f"A fatura passa os {euros(dados.COMBINA_MAX_COMPRAS)} elegíveis por mês, "
+            f"por isso a percentagem foi aplicada só a esse valor."
+        )
+
+    st.markdown("**O teu combustível**")
+    coluna1, coluna2, coluna3 = st.columns(3)
+    coluna1.metric("Combustível", f"{combina['litros']:,.0f} L/mês".replace(",", " "))
+    coluna2.metric(
+        "Litros elegíveis",
+        f"{combina['litros_elegiveis']:,.0f} L".replace(",", " "),
+        help=(
+            f"O programa conta até {dados.COMBINA_MAX_LITROS:.0f} L por mês e "
+            f"{dados.COMBINA_MAX_LITROS_ABASTECIMENTO:.0f} L por abastecimento."
+        ),
+    )
+    coluna3.metric("Poupança Galp", f"{euros(combina['poupanca_galp'])}/mês")
+    if combina["litros_limitado"]:
+        st.caption(
+            f"Introduziu {combina['litros']:.0f} L, mas só "
+            f"{combina['litros_elegiveis']:.0f} L contam para o desconto."
+        )
+
+    st.markdown("**Preço do kWh**")
+    coluna1, coluna2, coluna3 = st.columns(3)
+    coluna1.metric("Preço normal", _preco_kwh(combina["preco_normal"]))
+    coluna2.metric("Com benefício Continente", _preco_kwh(combina["preco_continente"]))
+    coluna3.metric(
+        "Equivalente com benefícios totais",
+        _preco_kwh(combina["preco_equivalente"]),
+        help=(
+            "Métrica de comparação: junta a poupança do Continente à do "
+            "combustível. Não é o preço que vem na fatura de energia."
+        ),
+    )
+
+    st.success(
+        f"**Poupança total COMBINA: {euros(combina['poupanca_total'])}/mês** — "
+        f"{euros(combina['poupanca_continente'])} no Continente "
+        f"e {euros(combina['poupanca_galp'])} em combustível.",
+        icon="💳",
+    )
+
+    aviso = (
+        "Os benefícios da Galp são poupanças em combustível e não constituem um "
+        "desconto direto na fatura de energia. O preço equivalente serve só para "
+        "comparar."
+    )
+    if combina["preco_equivalente_limitado"]:
+        aviso += (
+            " Neste caso os benefícios ultrapassam a fatura de energia, por isso "
+            "o preço equivalente aparece a 0 €/kWh."
+        )
+    st.caption(aviso)
+
+
+def entradas_ele(
+    catalogo: dados.Catalogo, sufixo: str = "", meses: int | None = None
+) -> dict:
+    """Campos de eletricidade do simulador. Devolve o que simular_ele precisa."""
+    potencias = catalogo.potencias()
+    colunas = st.columns(2 if meses is not None else 3)
+    with colunas[0]:
         potencia = st.selectbox(
             "Potência contratada (kVA)",
             potencias,
             index=potencias.index(6.9) if 6.9 in potencias else 0,
             format_func=dados.rotulo_potencia,
-            key="pot_sim",
+            key=f"pot_sim{sufixo}",
         )
-    with coluna2:
+    with colunas[1]:
         contagens = catalogo.contagens(potencia)
         contagem = st.selectbox(
             "Ciclo de contagem",
             contagens,
             format_func=lambda c: dados.NOMES_CICLO[c],
-            key="cic_sim",
+            key=f"cic_sim{sufixo}",
         )
-    with coluna3:
-        meses = st.number_input(
-            "Período a simular (meses)",
-            min_value=1,
-            max_value=24,
-            value=1,
-            step=1,
-            key="mes_sim",
-        )
+    if meses is None:
+        with colunas[2]:
+            meses = st.number_input(
+                "Período a simular (meses)",
+                min_value=1,
+                max_value=24,
+                value=1,
+                step=1,
+                key=f"mes_sim{sufixo}",
+            )
 
     st.markdown("**Consumo no período**")
     nomes = dados.PERIODOS[contagem]
@@ -842,20 +1004,20 @@ def simulador_eletricidade(catalogo: dados.Catalogo) -> None:
                     min_value=0.0,
                     value=float(valor) * meses,
                     step=10.0,
-                    key=f"kwh_{contagem}_{nome}",
+                    key=f"kwh_{contagem}_{nome}{sufixo}",
                 )
             )
 
     with st.expander("Impostos e encargos"):
         coluna1, coluna2, coluna3, coluna4 = st.columns(4)
         iva = coluna1.number_input(
-            "IVA (%)", 0.0, 30.0, dados.IVA_NORMAL, 0.5, key="iva_ele"
+            "IVA (%)", 0.0, 30.0, dados.IVA_NORMAL, 0.5, key=f"iva_ele{sufixo}"
         )
         reduzido = coluna2.checkbox(
             f"IVA a {dados.IVA_REDUZIDO:.0f}% na potência até "
             f"{dados.rotulo_potencia(dados.POTENCIA_IVA_REDUZIDO)} kVA",
             value=True,
-            key="ivared_ele",
+            key=f"ivared_ele{sufixo}",
         )
         cav = coluna3.number_input(
             "Contribuição audiovisual (€/mês)",
@@ -863,41 +1025,168 @@ def simulador_eletricidade(catalogo: dados.Catalogo) -> None:
             20.0,
             dados.CAV_MENSAL,
             0.05,
-            key="cav_ele",
+            key=f"cav_ele{sufixo}",
         )
         dgeg = coluna4.number_input(
-            "Taxa DGEG (€/mês)", 0.0, 20.0, dados.DGEG_MENSAL, 0.01, key="dgeg_ele"
+            "Taxa DGEG (€/mês)",
+            0.0,
+            20.0,
+            dados.DGEG_MENSAL,
+            0.01,
+            key=f"dgeg_ele{sufixo}",
         )
 
+    return {
+        "potencia": potencia,
+        "contagem": contagem,
+        "meses": int(meses),
+        "consumos": consumos,
+        "iva": iva,
+        "iva_reduzido_potencia": reduzido,
+        "cav": cav,
+        "dgeg": dgeg,
+    }
+
+
+def resultado_ele(
+    catalogo: dados.Catalogo, entradas: dict, filtros: dict, so_melhor: bool
+) -> pd.DataFrame:
+    """Corre a simulacao de eletricidade com as entradas ja recolhidas."""
+    meses = entradas["meses"]
+    dias = int(round(DIAS_POR_MES * meses))
+    tabela = catalogo.tabela_ele(entradas["potencia"], entradas["contagem"], **filtros)
+    resultado = dados.simular_ele(
+        tabela,
+        potencia=entradas["potencia"],
+        contagem=entradas["contagem"],
+        dias=dias,
+        consumos=entradas["consumos"],
+        iva=entradas["iva"],
+        iva_reduzido_potencia=entradas["iva_reduzido_potencia"],
+        cav=entradas["cav"],
+        dgeg=entradas["dgeg"],
+        meses=float(meses),
+    )
+    if so_melhor:
+        resultado = dados.melhor_por_comercializador(resultado, "total")
+    return resultado
+
+
+def entradas_gn(
+    catalogo: dados.Catalogo, sufixo: str = "", meses: int | None = None
+) -> dict:
+    """Campos de gas natural do simulador."""
+    escaloes = catalogo.escaloes()
+    colunas = st.columns(2 if meses is not None else 3)
+    with colunas[0]:
+        escalao = st.selectbox(
+            "Escalão de consumo",
+            escaloes,
+            format_func=lambda e: dados.ESCALOES_GN.get(e, f"Escalão {e}"),
+            key=f"esc_sim{sufixo}",
+        )
+    if meses is None:
+        with colunas[1]:
+            meses = st.number_input(
+                "Período a simular (meses)",
+                min_value=1,
+                max_value=24,
+                value=1,
+                step=1,
+                key=f"mes_simgn{sufixo}",
+            )
+    with colunas[-1]:
+        kwh = st.number_input(
+            "Consumo no período (kWh)",
+            min_value=0.0,
+            value=150.0 * meses,
+            step=10.0,
+            key=f"kwh_gn{sufixo}",
+        )
+
+    with st.expander("Impostos e encargos do gás"):
+        coluna1, coluna2, coluna3 = st.columns(3)
+        iva = coluna1.number_input(
+            "IVA (%)", 0.0, 30.0, dados.IVA_NORMAL, 0.5, key=f"iva_gn{sufixo}"
+        )
+        reduzido = coluna2.checkbox(
+            f"IVA a {dados.IVA_REDUZIDO:.0f}% no termo fixo do escalão 1",
+            value=True,
+            key=f"ivared_gn{sufixo}",
+        )
+        encargos = coluna3.number_input(
+            "Outros encargos (€/mês)", 0.0, 20.0, 0.0, 0.01, key=f"enc_gn{sufixo}"
+        )
+
+    return {
+        "escalao": escalao,
+        "meses": int(meses),
+        "kwh": kwh,
+        "iva": iva,
+        "iva_reduzido_termo_fixo": reduzido,
+        "encargos": encargos,
+    }
+
+
+def resultado_gn(
+    catalogo: dados.Catalogo, entradas: dict, filtros: dict, so_melhor: bool
+) -> pd.DataFrame:
+    """Corre a simulacao de gas natural com as entradas ja recolhidas."""
+    meses = entradas["meses"]
+    dias = int(round(DIAS_POR_MES * meses))
+    tabela = catalogo.tabela_gn(entradas["escalao"], **filtros)
+    resultado = dados.simular_gn(
+        tabela,
+        escalao=entradas["escalao"],
+        dias=dias,
+        kwh=entradas["kwh"],
+        iva=entradas["iva"],
+        iva_reduzido_termo_fixo=entradas["iva_reduzido_termo_fixo"],
+        encargos=entradas["encargos"],
+        meses=float(meses),
+    )
+    if so_melhor:
+        resultado = dados.melhor_por_comercializador(resultado, "total")
+    return resultado
+
+
+def _mensal(resultado: pd.DataFrame) -> float:
+    """A fatura mensal da oferta mais barata da simulacao."""
+    if resultado.empty:
+        return 0.0
+    return float(resultado.iloc[0]["media_mensal"])
+
+
+def simulador_eletricidade(catalogo: dados.Catalogo) -> None:
+    entradas = entradas_ele(catalogo)
+    nos, litros = campos_combina("simele")
     filtros = filtros_comuns(catalogo, "ele", "simele")
     so_melhor = st.checkbox(
         "Mostrar só a oferta mais barata de cada comercializador",
         value=True,
         key="mb_simele",
     )
-    dias = int(round(DIAS_POR_MES * meses))
-    tabela = catalogo.tabela_ele(potencia, contagem, **filtros)
-    resultado = dados.simular_ele(
-        tabela,
-        potencia=potencia,
-        contagem=contagem,
-        dias=dias,
-        consumos=consumos,
-        iva=iva,
-        iva_reduzido_potencia=reduzido,
-        cav=cav,
-        dgeg=dgeg,
-        meses=float(meses),
-    )
-    if so_melhor:
-        resultado = dados.melhor_por_comercializador(resultado, "total")
+    resultado = resultado_ele(catalogo, entradas, filtros, so_melhor)
     if resultado.empty:
         st.warning("Não há ofertas com estes filtros. Alargue os critérios.")
         return
 
+    meses = entradas["meses"]
+    consumos = entradas["consumos"]
+    dias = int(round(DIAS_POR_MES * meses))
+    plural = "meses" if meses > 1 else "mês"
     st.caption(
         f"{len(resultado)} ofertas simuladas para {dias} dias "
-        f"({meses} {'meses' if meses > 1 else 'mês'}) e {sum(consumos):.0f} kWh."
+        f"({meses} {plural}) e {sum(consumos):.0f} kWh."
+    )
+    seccao_combina(
+        dados.simular_combina(
+            eletricidade=True,
+            nos=nos,
+            fatura_ele=_mensal(resultado),
+            kwh_ele=sum(consumos) / meses,
+            litros=litros,
+        )
     )
     podio(resultado)
     st.write("")
@@ -906,85 +1195,127 @@ def simulador_eletricidade(catalogo: dados.Catalogo) -> None:
 
 
 def simulador_gas(catalogo: dados.Catalogo) -> None:
-    escaloes = catalogo.escaloes()
-    coluna1, coluna2, coluna3 = st.columns(3)
-    with coluna1:
-        escalao = st.selectbox(
-            "Escalão de consumo",
-            escaloes,
-            format_func=lambda e: dados.ESCALOES_GN.get(e, f"Escalão {e}"),
-            key="esc_sim",
-        )
-    with coluna2:
-        meses = st.number_input(
-            "Período a simular (meses)",
-            min_value=1,
-            max_value=24,
-            value=1,
-            step=1,
-            key="mes_simgn",
-        )
-    with coluna3:
-        kwh = st.number_input(
-            "Consumo no período (kWh)",
-            min_value=0.0,
-            value=150.0 * meses,
-            step=10.0,
-            key="kwh_gn",
-        )
-
-    with st.expander("Impostos e encargos"):
-        coluna1, coluna2, coluna3 = st.columns(3)
-        iva = coluna1.number_input(
-            "IVA (%)", 0.0, 30.0, dados.IVA_NORMAL, 0.5, key="iva_gn"
-        )
-        reduzido = coluna2.checkbox(
-            f"IVA a {dados.IVA_REDUZIDO:.0f}% no termo fixo do escalão 1",
-            value=True,
-            key="ivared_gn",
-        )
-        encargos = coluna3.number_input(
-            "Outros encargos (€/mês)", 0.0, 20.0, 0.0, 0.01, key="enc_gn"
-        )
-
+    entradas = entradas_gn(catalogo)
+    nos, litros = campos_combina("simgn")
     filtros = filtros_comuns(catalogo, "gn", "simgn")
     so_melhor = st.checkbox(
         "Mostrar só a oferta mais barata de cada comercializador",
         value=True,
         key="mb_simgn",
     )
-    dias = int(round(DIAS_POR_MES * meses))
-    tabela = catalogo.tabela_gn(escalao, **filtros)
-    resultado = dados.simular_gn(
-        tabela,
-        escalao=escalao,
-        dias=dias,
-        kwh=kwh,
-        iva=iva,
-        iva_reduzido_termo_fixo=reduzido,
-        encargos=encargos,
-        meses=float(meses),
-    )
-    if so_melhor:
-        resultado = dados.melhor_por_comercializador(resultado, "total")
+    resultado = resultado_gn(catalogo, entradas, filtros, so_melhor)
     if resultado.empty:
         st.warning("Não há ofertas com estes filtros. Alargue os critérios.")
         return
 
+    meses = entradas["meses"]
+    kwh = entradas["kwh"]
+    dias = int(round(DIAS_POR_MES * meses))
     st.caption(f"{len(resultado)} ofertas simuladas para {dias} dias e {kwh:.0f} kWh.")
+    seccao_combina(
+        dados.simular_combina(
+            gas=True,
+            nos=nos,
+            fatura_gas=_mensal(resultado),
+            kwh_gas=kwh / meses,
+            litros=litros,
+        )
+    )
     podio(resultado)
     st.write("")
     mostrar_resultado_simulacao(resultado, COR_GN)
     descarregar_tabela(resultado, "simulacao_gas_natural.csv", "csv_simgn")
 
 
+def simulador_ele_gas(catalogo: dados.Catalogo) -> None:
+    """
+    As duas energias ao mesmo tempo.
+
+    Cada uma continua a ser simulada e comparada como nos outros separadores.
+    O que se junta aqui e a fatura de energia, que soma as duas, e o Galp
+    COMBINA, que com as duas energias ja parte do nivel 2.
+    """
+    meses = st.number_input(
+        "Período a simular (meses)",
+        min_value=1,
+        max_value=24,
+        value=1,
+        step=1,
+        key="mes_simeg",
+        help="O mesmo período para as duas energias.",
+    )
+
+    st.markdown("#### ⚡ Eletricidade")
+    ent_ele = entradas_ele(catalogo, sufixo="_eg", meses=int(meses))
+    st.markdown("#### 🔥 Gás natural")
+    ent_gn = entradas_gn(catalogo, sufixo="_eg", meses=int(meses))
+
+    st.markdown("#### Outros serviços")
+    nos, litros = campos_combina("simeg")
+
+    so_melhor = st.checkbox(
+        "Mostrar só a oferta mais barata de cada comercializador",
+        value=True,
+        key="mb_simeg",
+    )
+
+    with st.expander("Filtros da eletricidade"):
+        filtros_ele = filtros_comuns(catalogo, "ele", "simeleeg")
+    with st.expander("Filtros do gás natural"):
+        filtros_gn = filtros_comuns(catalogo, "gn", "simgneg")
+
+    res_ele = resultado_ele(catalogo, ent_ele, filtros_ele, so_melhor)
+    res_gn = resultado_gn(catalogo, ent_gn, filtros_gn, so_melhor)
+    if res_ele.empty and res_gn.empty:
+        st.warning("Não há ofertas com estes filtros. Alargue os critérios.")
+        return
+
+    fatura_ele = _mensal(res_ele)
+    fatura_gn = _mensal(res_gn)
+    st.markdown("**Fatura de energia por mês, somando as duas mais baratas**")
+    coluna1, coluna2, coluna3 = st.columns(3)
+    coluna1.metric("Eletricidade", f"{euros(fatura_ele)}/mês")
+    coluna2.metric("Gás natural", f"{euros(fatura_gn)}/mês")
+    coluna3.metric("Energia", f"{euros(fatura_ele + fatura_gn)}/mês")
+
+    seccao_combina(
+        dados.simular_combina(
+            eletricidade=not res_ele.empty,
+            gas=not res_gn.empty,
+            nos=nos,
+            fatura_ele=fatura_ele,
+            kwh_ele=sum(ent_ele["consumos"]) / meses,
+            fatura_gas=fatura_gn,
+            kwh_gas=ent_gn["kwh"] / meses,
+            litros=litros,
+        )
+    )
+
+    if not res_ele.empty:
+        st.markdown("#### ⚡ Ofertas de eletricidade")
+        podio(res_ele)
+        st.write("")
+        mostrar_resultado_simulacao(res_ele, COR_ELE)
+        descarregar_tabela(res_ele, "simulacao_eletricidade.csv", "csv_simeleeg")
+    if not res_gn.empty:
+        st.markdown("#### 🔥 Ofertas de gás natural")
+        podio(res_gn)
+        st.write("")
+        mostrar_resultado_simulacao(res_gn, COR_GN)
+        descarregar_tabela(res_gn, "simulacao_gas_natural.csv", "csv_simgneg")
+
+
 def separador_simulador(catalogo: dados.Catalogo) -> None:
     st.subheader("Simulador de fatura")
-    aba_ele, aba_gn = st.tabs(["⚡ Eletricidade", "🔥 Gás natural"])
+    aba_ele, aba_gn, aba_eg = st.tabs(
+        ["⚡ Eletricidade", "🔥 Gás natural", "⚡🔥 Eletricidade + Gás natural"]
+    )
     with aba_ele:
         simulador_eletricidade(catalogo)
     with aba_gn:
         simulador_gas(catalogo)
+    with aba_eg:
+        simulador_ele_gas(catalogo)
     st.info(
         "Os valores são uma estimativa a partir dos preços publicados pela ERSE. "
         "A fatura final pode variar com descontos, serviços adicionais e acertos "

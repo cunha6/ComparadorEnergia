@@ -528,6 +528,177 @@ def melhor_por_comercializador(tabela: pd.DataFrame, coluna: str) -> pd.DataFram
     return ordenada.drop_duplicates(subset="marca").reset_index(drop=True)
 
 
+# --------------------------------------------------------------- galp combina
+
+# Valores do programa Galp COMBINA. Ficam todos aqui, num sitio so, para nao
+# andarem espalhados pelos ecras. A chave e o numero de servicos elegiveis.
+COMBINA_NIVEIS = {
+    1: {"continente": 2.0, "galp": 0.20},
+    2: {"continente": 5.0, "galp": 0.25},
+    3: {"continente": 10.0, "galp": 0.30},
+}
+
+# Teto mensal de compras que contam para a percentagem do Continente.
+COMBINA_MAX_COMPRAS = 450.0
+
+# Teto mensal de litros que contam para o desconto da Galp.
+COMBINA_MAX_LITROS = 250.0
+
+# Limite por abastecimento. Nao entra na conta mensal, porque o simulador
+# pergunta o consumo do mes e nao ha maneira de saber em quantas idas a bomba
+# esse mes foi feito. Fica so como regra a mostrar ao utilizador.
+COMBINA_MAX_LITROS_ABASTECIMENTO = 60.0
+
+NOMES_SERVICOS_COMBINA = {
+    "eletricidade": "Eletricidade",
+    "gas": "Gás natural",
+    "nos": "NOS",
+}
+
+
+def nivel_combina(
+    eletricidade: bool, gas: bool, nos: bool, mesmo_local: bool = True
+) -> dict:
+    """
+    Nivel COMBINA a partir dos servicos que o cliente tem.
+
+    mesmo_local diz se a eletricidade e o gas sao do mesmo local de consumo,
+    que e a condicao para contarem como dois servicos. A aplicacao nao tem
+    hoje dados de morada, por isso o valor por omissao e True e nao existe
+    campo para isto no ecra. O parametro fica preparado para quando essa
+    informacao existir.
+    """
+    tem_ele = bool(eletricidade)
+    tem_gas = bool(gas)
+    tem_nos = bool(nos)
+
+    # Sem a garantia de ser o mesmo local, o gas nao acrescenta um segundo
+    # servico a eletricidade.
+    conta_gas = tem_gas and (mesmo_local or not tem_ele)
+
+    quantos = min(sum((tem_ele, conta_gas, tem_nos)), 3)
+    beneficios = COMBINA_NIVEIS.get(quantos, {"continente": 0.0, "galp": 0.0})
+    return {
+        "nivel": quantos,
+        "servicos": {"eletricidade": tem_ele, "gas": tem_gas, "nos": tem_nos},
+        "n_servicos": quantos,
+        "elegivel": quantos > 0,
+        "continente_percentagem": beneficios["continente"],
+        "galp_por_litro": beneficios["galp"],
+    }
+
+
+def beneficio_continente(valor_mensal: float, percentagem: float) -> dict:
+    """Cartao Continente: percentagem sobre o valor mensal, com teto."""
+    valor = max(float(valor_mensal), 0.0)
+    elegivel = min(valor, COMBINA_MAX_COMPRAS)
+    return {
+        "valor": valor,
+        "elegivel": elegivel,
+        "beneficio": elegivel * float(percentagem) / 100.0,
+        "limitado": valor > COMBINA_MAX_COMPRAS,
+    }
+
+
+def beneficio_galp(litros_mensais: float, por_litro: float) -> dict:
+    """Desconto no combustivel: euros por litro, com teto mensal de litros."""
+    litros = max(float(litros_mensais), 0.0)
+    elegiveis = min(litros, COMBINA_MAX_LITROS)
+    return {
+        "litros": litros,
+        "elegiveis": elegiveis,
+        "beneficio": elegiveis * float(por_litro),
+        "limitado": litros > COMBINA_MAX_LITROS,
+    }
+
+
+def preco_por_kwh(fatura: float, kwh: float) -> float | None:
+    """Preco medio do kWh. None quando nao ha consumo para dividir."""
+    kwh = float(kwh)
+    if kwh <= 0:
+        return None
+    return float(fatura) / kwh
+
+
+def simular_combina(
+    eletricidade: bool = False,
+    gas: bool = False,
+    nos: bool = False,
+    fatura_ele: float = 0.0,
+    kwh_ele: float = 0.0,
+    fatura_gas: float = 0.0,
+    kwh_gas: float = 0.0,
+    litros: float = 0.0,
+    mesmo_local: bool = True,
+) -> dict:
+    """
+    Tudo o que a seccao Galp COMBINA precisa de mostrar, ja calculado.
+
+    Todos os valores de entrada e de saida sao mensais, porque os limites do
+    programa sao mensais. Quem chama trata de dividir o periodo simulado.
+
+    O beneficio da Galp e sobre combustivel e nao se subtrai a fatura de
+    energia. So entra na poupanca total e no preco equivalente, que e uma
+    metrica de comparacao e vem marcada como tal em preco_equivalente_limitado.
+    """
+    nivel = nivel_combina(eletricidade, gas, nos, mesmo_local)
+
+    # Uma energia que o cliente nao tem nao traz fatura nem consumo.
+    valor_ele = max(float(fatura_ele), 0.0) if nivel["servicos"]["eletricidade"] else 0.0
+    consumo_ele = max(float(kwh_ele), 0.0) if nivel["servicos"]["eletricidade"] else 0.0
+    valor_gas = max(float(fatura_gas), 0.0) if nivel["servicos"]["gas"] else 0.0
+    consumo_gas = max(float(kwh_gas), 0.0) if nivel["servicos"]["gas"] else 0.0
+
+    fatura_energia = valor_ele + valor_gas
+    kwh_total = consumo_ele + consumo_gas
+
+    continente = beneficio_continente(fatura_energia, nivel["continente_percentagem"])
+    galp = beneficio_galp(litros, nivel["galp_por_litro"])
+    poupanca_total = continente["beneficio"] + galp["beneficio"]
+
+    # O beneficio do Continente reparte-se pelas duas energias na proporcao do
+    # peso de cada fatura, para o preco efetivo de cada uma fazer sentido.
+    def _efetivo(valor: float, consumo: float) -> float | None:
+        if fatura_energia <= 0:
+            return preco_por_kwh(valor, consumo)
+        parte = continente["beneficio"] * (valor / fatura_energia)
+        return preco_por_kwh(valor - parte, consumo)
+
+    # Quando os beneficios passam a fatura, o preco equivalente para em zero.
+    # Um preco negativo nao diria nada a ninguem.
+    sobra = fatura_energia - continente["beneficio"] - galp["beneficio"]
+    return {
+        "nivel": nivel["nivel"],
+        "servicos": nivel["servicos"],
+        "n_servicos": nivel["n_servicos"],
+        "elegivel": nivel["elegivel"],
+        "continente_percentagem": nivel["continente_percentagem"],
+        "galp_por_litro": nivel["galp_por_litro"],
+        "fatura_ele": valor_ele,
+        "fatura_gas": valor_gas,
+        "fatura_energia": fatura_energia,
+        "kwh_ele": consumo_ele,
+        "kwh_gas": consumo_gas,
+        "kwh_total": kwh_total,
+        "continente_elegivel": continente["elegivel"],
+        "continente_limitado": continente["limitado"],
+        "poupanca_continente": continente["beneficio"],
+        "litros": galp["litros"],
+        "litros_elegiveis": galp["elegiveis"],
+        "litros_limitado": galp["limitado"],
+        "poupanca_galp": galp["beneficio"],
+        "poupanca_total": poupanca_total,
+        "preco_normal": preco_por_kwh(fatura_energia, kwh_total),
+        "preco_continente": preco_por_kwh(
+            fatura_energia - continente["beneficio"], kwh_total
+        ),
+        "preco_equivalente": preco_por_kwh(max(sobra, 0.0), kwh_total),
+        "preco_equivalente_limitado": sobra < 0,
+        "poupanca_por_kwh": preco_por_kwh(poupanca_total, kwh_total),
+        "preco_efetivo_ele": _efetivo(valor_ele, consumo_ele),
+        "preco_efetivo_gas": _efetivo(valor_gas, consumo_gas),
+    }
+
 # --------------------------------------------------------------- comparativo
 
 
