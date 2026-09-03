@@ -568,6 +568,49 @@ def simular_gn(
     return resultado.sort_values("total").reset_index(drop=True)
 
 
+def juntar_ele_gn(res_ele: pd.DataFrame, res_gn: pd.DataFrame) -> pd.DataFrame:
+    """
+    Uma linha por comercializador, com as duas energias somadas.
+
+    So entram os comercializadores que aparecem nas duas simulacoes. Quem so
+    vende uma das energias nao da para comparar num pacote das duas, e somar-lhe
+    uma fatura a zero punha-o injustamente em primeiro lugar.
+
+    De cada lado fica a proposta mais barata desse comercializador.
+    """
+    if res_ele is None or res_gn is None or res_ele.empty or res_gn.empty:
+        return pd.DataFrame()
+
+    ele = melhor_por_comercializador(res_ele, "total").set_index("marca")
+    gn = melhor_por_comercializador(res_gn, "total").set_index("marca")
+    comuns = set(ele.index) & set(gn.index)
+    if not comuns:
+        return pd.DataFrame()
+
+    registos = []
+    for marca in comuns:
+        linha_ele = ele.loc[marca]
+        linha_gn = gn.loc[marca]
+        registos.append(
+            {
+                "marca": marca,
+                # O podio e o grafico precisam de uma proposta para a etiqueta.
+                # Os nomes verdadeiros vao nas colunas proprias da tabela.
+                "proposta": "Eletricidade + gás natural",
+                "proposta_ele": linha_ele["proposta"],
+                "proposta_gn": linha_gn["proposta"],
+                "preco_kwh_ele": linha_ele.get("preco_kwh"),
+                "preco_kwh_gn": linha_gn.get("preco_kwh"),
+                "total_ele": float(linha_ele["total"]),
+                "total_gn": float(linha_gn["total"]),
+                "total": float(linha_ele["total"]) + float(linha_gn["total"]),
+                "media_mensal": float(linha_ele["media_mensal"])
+                + float(linha_gn["media_mensal"]),
+            }
+        )
+    return pd.DataFrame(registos).sort_values("total").reset_index(drop=True)
+
+
 def melhor_por_comercializador(tabela: pd.DataFrame, coluna: str) -> pd.DataFrame:
     """Guarda so a proposta mais barata de cada comercializador."""
     if tabela.empty:

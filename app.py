@@ -67,6 +67,10 @@ COR_SUAVE = "#5B6472"
 
 DIAS_POR_MES = 30.4
 
+# Potencia que vem escolhida no simulador. E a mais comum nas casas pequenas e
+# a unica com IVA reduzido no termo fixo.
+POTENCIA_PREDEFINIDA = 3.45
+
 st.set_page_config(
     page_title=TITULO,
     page_icon="⚡",
@@ -1111,7 +1115,11 @@ def entradas_ele(
         potencia = st.selectbox(
             "Potência contratada (kVA)",
             potencias,
-            index=potencias.index(6.9) if 6.9 in potencias else 0,
+            index=(
+                potencias.index(POTENCIA_PREDEFINIDA)
+                if POTENCIA_PREDEFINIDA in potencias
+                else 0
+            ),
             format_func=dados.rotulo_potencia,
             key=f"pot_sim{sufixo}",
         )
@@ -1402,6 +1410,60 @@ def simulador_gas(catalogo: dados.Catalogo) -> None:
     descarregar_tabela(resultado, "simulacao_gas_natural.csv", "csv_simgn")
 
 
+def mostrar_resultado_dual(tabela: pd.DataFrame) -> None:
+    """A tabela das duas energias somadas, uma linha por comercializador."""
+    colunas = [
+        "marca",
+        "total",
+        "media_mensal",
+        "preco_kwh_ele",
+        "preco_kwh_gn",
+        "total_ele",
+        "total_gn",
+        "proposta_ele",
+        "proposta_gn",
+    ]
+    config = {
+        "marca": st.column_config.TextColumn("Comercializador", width="medium"),
+        "total": st.column_config.NumberColumn("Total € (as duas)", format="%.2f"),
+        "media_mensal": st.column_config.NumberColumn("Por mês €", format="%.2f"),
+        "preco_kwh_ele": st.column_config.NumberColumn(
+            "€/kWh eletricidade",
+            format="%.4f",
+            help="Só a energia elétrica, sem termo fixo, encargos nem IVA.",
+        ),
+        "preco_kwh_gn": st.column_config.NumberColumn(
+            "€/kWh gás",
+            format="%.4f",
+            help="Só a energia do gás, sem termo fixo, encargos nem IVA.",
+        ),
+        "total_ele": st.column_config.NumberColumn("Eletricidade €", format="%.2f"),
+        "total_gn": st.column_config.NumberColumn("Gás €", format="%.2f"),
+        "proposta_ele": st.column_config.TextColumn(
+            "Proposta eletricidade", width="large"
+        ),
+        "proposta_gn": st.column_config.TextColumn("Proposta gás", width="large"),
+    }
+    st.dataframe(
+        tabela[colunas],
+        column_config=config,
+        hide_index=True,
+        width="stretch",
+        height=min(45 + 35 * len(tabela), 560),
+    )
+    st.altair_chart(
+        grafico_barras(
+            tabela,
+            "total",
+            "Os pacotes mais baratos com as duas energias",
+            COR_ELE,
+            "€ no período",
+            casas=2,
+        ),
+        width="stretch",
+    )
+
+
 def simulador_ele_gas(catalogo: dados.Catalogo) -> None:
     """
     As duas energias ao mesmo tempo.
@@ -1428,19 +1490,15 @@ def simulador_ele_gas(catalogo: dados.Catalogo) -> None:
     st.markdown("#### Outros serviços")
     nos, litros = campos_combina("simeg")
 
-    so_melhor = st.checkbox(
-        "Mostrar só a oferta mais barata de cada comercializador",
-        value=True,
-        key="mb_simeg",
-    )
-
+    # Aqui nao ha o filtro de uma oferta por comercializador: a tabela junta as
+    # duas energias e por isso ja e uma linha por comercializador.
     with st.expander("Filtros da eletricidade"):
         filtros_ele = filtros_comuns(catalogo, "ele", "simeleeg")
     with st.expander("Filtros do gás natural"):
         filtros_gn = filtros_comuns(catalogo, "gn", "simgneg")
 
-    completo_ele, res_ele = resultado_ele(catalogo, ent_ele, filtros_ele, so_melhor)
-    completo_gn, res_gn = resultado_gn(catalogo, ent_gn, filtros_gn, so_melhor)
+    completo_ele, res_ele = resultado_ele(catalogo, ent_ele, filtros_ele, False)
+    completo_gn, res_gn = resultado_gn(catalogo, ent_gn, filtros_gn, False)
     if res_ele.empty and res_gn.empty:
         st.warning("Não há ofertas com estes filtros. Alargue os critérios.")
         return
@@ -1475,18 +1533,28 @@ def simulador_ele_gas(catalogo: dados.Catalogo) -> None:
         ancora_ele["e_combina"] and ancora_gn["e_combina"],
     )
 
-    if not res_ele.empty:
-        st.markdown("#### ⚡ Ofertas de eletricidade")
-        podio(res_ele)
-        st.write("")
-        mostrar_resultado_simulacao(res_ele, COR_ELE)
-        descarregar_tabela(res_ele, "simulacao_eletricidade.csv", "csv_simeleeg")
-    if not res_gn.empty:
-        st.markdown("#### 🔥 Ofertas de gás natural")
-        podio(res_gn)
-        st.write("")
-        mostrar_resultado_simulacao(res_gn, COR_GN)
-        descarregar_tabela(res_gn, "simulacao_gas_natural.csv", "csv_simgneg")
+    dual = dados.juntar_ele_gn(completo_ele, completo_gn)
+    if dual.empty:
+        st.warning(
+            "Nenhum comercializador tem as duas energias com estes filtros. "
+            "Alargue os critérios para poder comparar pacotes."
+        )
+        return
+
+    st.markdown("#### ⚡🔥 As duas energias, por comercializador")
+    so_ele = set(completo_ele["marca"]) - set(dual["marca"])
+    so_gn = set(completo_gn["marca"]) - set(dual["marca"])
+    if so_ele or so_gn:
+        st.caption(
+            f"{len(dual)} comercializadores vendem as duas energias. "
+            f"Ficaram de fora {len(so_ele)} que só têm eletricidade e "
+            f"{len(so_gn)} que só têm gás, porque não dá para os comparar "
+            f"num pacote das duas."
+        )
+    podio(dual)
+    st.write("")
+    mostrar_resultado_dual(dual)
+    descarregar_tabela(dual, "simulacao_eletricidade_gas.csv", "csv_simeg")
 
 
 def separador_simulador(catalogo: dados.Catalogo) -> None:
