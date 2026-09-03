@@ -86,14 +86,6 @@ ESTILO = """
 [data-testid="stStatusWidget"], [data-testid="stAppDeployButton"],
 .stDeployButton {display: none !important;}
 
-/* badge "Hosted with Streamlit" e avatar do criador, postos pelo Community
-   Cloud. As classes sao geradas com hashes e mudam a cada versao, por isso
-   ha varios selectores para o mesmo elemento. */
-[class*="viewerBadge"], [class*="profileContainer"],
-[data-testid="stAppViewerBadge"],
-a[href*="streamlit.io/cloud"], a[href*="share.streamlit.io/user"],
-a[href*="streamlit.io/?utm"] {display: none !important;}
-
 .block-container {padding-top: 1.2rem; padding-bottom: 3rem; max-width: 1560px;}
 
 /* cabecalho */
