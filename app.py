@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import datetime as _dt
 import os
+import re
+import unicodedata
 import tempfile
 from pathlib import Path
 
@@ -460,6 +462,92 @@ def grafico_pontos(
 # --------------------------------------------------------------- filtros
 
 
+def _chave_caixa(chave: str, opcao) -> str:
+    """
+    Chave estavel para a caixa de uma opcao.
+
+    Os acentos saem antes do resto, senao cada um virava um underscore e a
+    chave ficava ilegivel, do genero "excluir_pre_os_indexados".
+    """
+    texto = unicodedata.normalize("NFKD", str(opcao))
+    sem_acentos = "".join(letra for letra in texto if not unicodedata.combining(letra))
+    limpo = re.sub(r"[^a-z0-9]+", "_", sem_acentos.lower()).strip("_")
+    return f"{chave}__{limpo}"
+
+
+def _marcar_caixas(chave: str, opcoes: list, escolhidas) -> None:
+    """Callback dos botoes de atalho. Corre antes de as caixas serem criadas."""
+    escolhidas = set(escolhidas)
+    for opcao in opcoes:
+        st.session_state[_chave_caixa(chave, opcao)] = opcao in escolhidas
+
+
+def contar_marcadas(opcoes: list, predefinidas: list, chave: str) -> int:
+    """
+    Quantas caixas estao ligadas, para o rotulo do expander.
+
+    Le o session_state e nao o resultado do caixas(), porque o rotulo e
+    desenhado antes das caixas e ficaria sempre um passo atrasado.
+    """
+    if not opcoes or _chave_caixa(chave, opcoes[0]) not in st.session_state:
+        return len(predefinidas)
+    return sum(bool(st.session_state.get(_chave_caixa(chave, o))) for o in opcoes)
+
+
+def caixas(
+    opcoes: list,
+    predefinidas: list,
+    chave: str,
+    colunas: int = 3,
+    formatar=str,
+) -> list:
+    """
+    Uma caixa por opcao, em vez de um multiselect.
+
+    Com muitas opcoes escolhidas o multiselect enche-se de etiquetas, cresce em
+    altura e deixa de dar para ver o que esta ligado. Com caixas ve-se tudo de
+    uma vez e liga-se e desliga-se cada uma no sitio.
+    """
+    escolhidas = []
+    grelha = st.columns(colunas)
+    for indice, opcao in enumerate(opcoes):
+        with grelha[indice % colunas]:
+            marcada = st.checkbox(
+                formatar(opcao),
+                value=opcao in predefinidas,
+                key=_chave_caixa(chave, opcao),
+            )
+        if marcada:
+            escolhidas.append(opcao)
+    return escolhidas
+
+
+def atalhos_caixas(opcoes: list, predefinidas: list, chave: str) -> None:
+    """Botoes para ligar tudo, desligar tudo ou voltar ao que vem de origem."""
+    coluna1, coluna2, coluna3, _ = st.columns([1, 1, 1.4, 4])
+    coluna1.button(
+        "Todos",
+        key=f"todos_{chave}",
+        on_click=_marcar_caixas,
+        args=(chave, opcoes, opcoes),
+        width="stretch",
+    )
+    coluna2.button(
+        "Nenhum",
+        key=f"nenhum_{chave}",
+        on_click=_marcar_caixas,
+        args=(chave, opcoes, []),
+        width="stretch",
+    )
+    coluna3.button(
+        "Habituais",
+        key=f"repor_{chave}",
+        on_click=_marcar_caixas,
+        args=(chave, opcoes, predefinidas),
+        width="stretch",
+    )
+
+
 def filtros_comuns(catalogo: dados.Catalogo, energia: str, chave: str) -> dict:
     """Linha de filtros partilhada pelas tabelas e pelo simulador."""
     restricoes = [
@@ -479,7 +567,7 @@ def filtros_comuns(catalogo: dados.Catalogo, energia: str, chave: str) -> dict:
     disponiveis = catalogo.comercializadores(energia)
     principais = [m for m in dados.PRINCIPAIS if m in disponiveis]
 
-    coluna1, coluna2, coluna3 = st.columns([1, 3, 2.4])
+    coluna1, _ = st.columns([1, 4])
     with coluna1:
         segmento = st.selectbox(
             "Segmento",
@@ -487,29 +575,24 @@ def filtros_comuns(catalogo: dados.Catalogo, energia: str, chave: str) -> dict:
             format_func=lambda s: dados.SEGMENTOS.get(s, s),
             key=f"seg_{chave}",
         )
-    with coluna2:
-        marcas = st.multiselect(
-            "Comercializadores",
-            disponiveis,
-            default=principais,
-            placeholder="Todos",
-            key=f"com_{chave}",
-        )
-    with coluna3:
-        opcoes = st.multiselect(
-            "Restrições",
-            restricoes,
-            default=predefinidas,
-            key=f"opc_{chave}",
-            help=(
-                "«Condições de acesso» são ofertas reservadas a quem pertence a "
-                "alguma coisa: associados do ACP, clientes Vodafone ou Santander, "
-                "sócios de clubes. Costumam ser das mais baratas da tabela, mas "
-                "só valem se o caso se aplicar a si. A Galp COMBINA fica sempre "
-                "na tabela: a condição dela é associar o Cartão Continente ao "
-                "Mundo Galp, que é grátis e está aberto a qualquer pessoa."
-            ),
-        )
+
+    st.markdown("**Restrições**")
+    st.caption(
+        "«Condições de acesso» são ofertas reservadas a quem pertence a alguma "
+        "coisa: associados do ACP, clientes Vodafone ou Santander, sócios de "
+        "clubes. Costumam ser das mais baratas da tabela, mas só valem se o caso "
+        "se aplicar a si. A Galp COMBINA fica sempre na tabela: a condição dela é "
+        "associar o Cartão Continente ao Mundo Galp, que é grátis e está aberto a "
+        "qualquer pessoa."
+    )
+    opcoes = caixas(restricoes, predefinidas, f"opc_{chave}", colunas=3)
+
+    quantos = contar_marcadas(disponiveis, principais, f"com_{chave}")
+    with st.expander(f"Comercializadores ({quantos} de {len(disponiveis)})"):
+        atalhos_caixas(disponiveis, principais, f"com_{chave}")
+        marcas = caixas(disponiveis, principais, f"com_{chave}", colunas=4)
+        if not marcas:
+            st.caption("Sem nenhum marcado aparecem todos.")
 
     filtros = {
         "segmento": segmento,
@@ -682,12 +765,13 @@ def separador_eletricidade(catalogo: dados.Catalogo) -> None:
             key="cic_tab",
         )
     with coluna2:
-        potencias = st.multiselect(
-            "Potências contratadas (kVA)",
+        st.markdown("**Potências contratadas (kVA)**")
+        potencias = caixas(
             disponiveis,
-            default=habituais,
-            format_func=dados.rotulo_potencia,
-            key="pot_tab",
+            habituais,
+            "pot_tab",
+            colunas=7,
+            formatar=dados.rotulo_potencia,
         )
     if not potencias:
         st.warning("Escolha pelo menos uma potência.")
