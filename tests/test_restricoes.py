@@ -85,6 +85,54 @@ class TestFiltroRestricoes(unittest.TestCase):
         self.assertTrue(r.empty)
 
 
+class TestExcecaoGalpCombina(unittest.TestCase):
+    """
+    Todas as ofertas do Plano COMBINA estao marcadas com restricao, mas a
+    condicao e associar o Cartao Continente ao Mundo Galp, que e gratuito. Sem
+    esta excecao o filtro apagava a marca inteira e a seccao COMBINA ficava sem
+    nada em que se basear.
+    """
+
+    def tabela(self):
+        # A linha nova entra como dicionario e nao por concat de uma Series,
+        # senao as colunas booleanas passam a object e o ~ do pandas deixa de
+        # ser negacao logica. Nos dados a serio o _juntar forca o astype(bool).
+        base = linhas()
+        combina = base.iloc[0].to_dict()
+        combina["marca"] = dados.MARCA_COMBINA
+        combina["proposta"] = "Plano COMBINA Dual (DD)"
+        combina["restricoes"] = "Associar Cartão Continente ao Mundo Galp"
+        junta = pd.concat([base, pd.DataFrame([combina])], ignore_index=True)
+        junta["com_restricoes"] = junta["com_restricoes"].astype(bool)
+        return junta
+
+    def filtra(self, **extra):
+        base = dict(
+            segmento="Todos",
+            comercializadores=None,
+            so_ativas=False,
+            sem_indexadas=False,
+            sem_so_novos_clientes=False,
+            so_renovavel=False,
+            dia=dt.date(2026, 9, 3),
+        )
+        base.update(extra)
+        return dados._aplicar_filtros(self.tabela(), **base)
+
+    def test_sobrevive_ao_filtro(self):
+        marcas = list(self.filtra(sem_restricoes=True)["marca"])
+        self.assertIn(dados.MARCA_COMBINA, marcas)
+
+    def test_as_outras_continuam_a_sair(self):
+        marcas = list(self.filtra(sem_restricoes=True)["marca"])
+        self.assertNotIn("Goldenergy", marcas)
+        self.assertEqual(sorted(marcas), sorted(["EDP", dados.MARCA_COMBINA]))
+
+    def test_a_excecao_nao_a_livra_dos_outros_filtros(self):
+        r = self.filtra(sem_restricoes=True, comercializadores=["EDP"])
+        self.assertNotIn(dados.MARCA_COMBINA, list(r["marca"]))
+
+
 class TestColunasLidas(unittest.TestCase):
     """As duas colunas do CSV tem de estar no mapa, senao nada disto existe."""
 

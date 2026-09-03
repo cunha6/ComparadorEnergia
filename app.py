@@ -459,7 +459,11 @@ def filtros_comuns(catalogo: dados.Catalogo, energia: str, chave: str) -> dict:
         "Excluir ofertas só para novos clientes",
         "Excluir ofertas com condições de acesso",
     ]
-    predefinidas = ["Apenas ofertas em vigor hoje"]
+    predefinidas = [
+        "Apenas ofertas em vigor hoje",
+        "Excluir ofertas só para novos clientes",
+        "Excluir ofertas com condições de acesso",
+    ]
     if energia == "ele":
         restricoes += ["Excluir preços indexados", "Apenas energia renovável"]
         predefinidas += ["Excluir preços indexados"]
@@ -492,8 +496,10 @@ def filtros_comuns(catalogo: dados.Catalogo, energia: str, chave: str) -> dict:
             help=(
                 "«Condições de acesso» são ofertas reservadas a quem pertence a "
                 "alguma coisa: associados do ACP, clientes Vodafone ou Santander, "
-                "sócios de clubes, cartões associados. Costumam ser das mais "
-                "baratas da tabela, mas só valem se o caso se aplicar a si."
+                "sócios de clubes. Costumam ser das mais baratas da tabela, mas "
+                "só valem se o caso se aplicar a si. A Galp COMBINA fica sempre "
+                "na tabela: a condição dela é associar o Cartão Continente ao "
+                "Mundo Galp, que é grátis e está aberto a qualquer pessoa."
             ),
         )
 

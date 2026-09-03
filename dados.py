@@ -305,7 +305,14 @@ def _aplicar_filtros(
     if so_renovavel and "renovavel" in linhas.columns:
         linhas = linhas[linhas["renovavel"]]
     if sem_restricoes and "com_restricoes" in linhas.columns:
-        linhas = linhas[~linhas["com_restricoes"]]
+        # A Galp COMBINA fica de fora deste filtro de proposito. Todas as suas
+        # ofertas estao marcadas com restricao, mas a condicao e associar o
+        # Cartao Continente ao Mundo Galp, que e gratuito e aberto a qualquer
+        # pessoa, ao contrario de ser socio do ACP ou cliente da Vodafone. Como
+        # a aplicacao tem uma seccao inteira dedicada ao COMBINA, tira-lo da
+        # tabela deixava essa seccao sem nada em que se basear.
+        excecao = linhas["marca"] == MARCA_COMBINA
+        linhas = linhas[(~linhas["com_restricoes"]) | excecao]
     if so_ativas:
         momento = pd.Timestamp(dia or _dt.date.today())
         inicio = linhas["data_ini"]
