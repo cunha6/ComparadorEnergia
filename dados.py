@@ -458,6 +458,23 @@ def _juntar(precos: pd.DataFrame, condicoes: pd.DataFrame) -> pd.DataFrame:
 # --------------------------------------------------------------- simulador
 
 
+def _precos_por_kwh(resultado: pd.DataFrame, kwh: float) -> pd.DataFrame:
+    """
+    Dois precos por kWh em cada proposta.
+
+    preco_kwh e so a energia, que e a parcela sobre a qual incidem os descontos
+    comerciais. preco_kwh_total e a fatura inteira a dividir pelo consumo, que
+    e o que se paga na pratica.
+    """
+    if kwh <= 0:
+        resultado["preco_kwh"] = pd.NA
+        resultado["preco_kwh_total"] = pd.NA
+        return resultado
+    resultado["preco_kwh"] = resultado["custo_energia"] / kwh
+    resultado["preco_kwh_total"] = resultado["total"] / kwh
+    return resultado
+
+
 def simular_ele(
     tabela: pd.DataFrame,
     potencia: float,
@@ -511,6 +528,7 @@ def simular_ele(
     resultado["iva"] = iva_energia + iva_potencia + iva_encargos
     resultado["total"] = resultado["sem_iva"] + resultado["iva"]
     resultado["media_mensal"] = resultado["total"] / max(meses, 0.0001)
+    resultado = _precos_por_kwh(resultado, sum(float(c) for c in consumos))
     return resultado.sort_values("total").reset_index(drop=True)
 
 
@@ -546,6 +564,7 @@ def simular_gn(
     )
     resultado["total"] = resultado["sem_iva"] + resultado["iva"]
     resultado["media_mensal"] = resultado["total"] / max(meses, 0.0001)
+    resultado = _precos_por_kwh(resultado, float(kwh))
     return resultado.sort_values("total").reset_index(drop=True)
 
 
@@ -621,20 +640,37 @@ def nivel_combina(
 # Nome da marca das ofertas do Plano COMBINA, depois de familia_galp as separar.
 MARCA_COMBINA = "Galp COMBINA"
 
+# Propostas em que a seccao COMBINA se baseia, conforme o cliente tenha NOS ou
+# nao. Sao as duas variantes simples com debito direto: sem servicos 360 e sem
+# solar, que sao extras que nada tem a ver com os beneficios do programa. Se
+# nenhuma estiver na tabela filtrada, usa-se a proposta COMBINA mais barata.
+PROPOSTA_COMBINA_SEM_NOS = "Plano COMBINA Dual (DD)"
+PROPOSTA_COMBINA_COM_NOS = "Plano COMBINA Dual+NOS (DD)"
 
-def oferta_combina(resultado):
+
+def _normaliza(texto: str) -> str:
+    return " ".join((texto or "").split()).lower()
+
+
+def oferta_combina(resultado, nos: bool = False):
     """
-    A proposta Galp COMBINA mais barata de uma simulacao, ou None.
+    A proposta em que a seccao COMBINA se baseia, ou None.
 
-    E nela que a seccao COMBINA se baseia. Sem isto os beneficios saiam da
-    fatura da oferta mais barata da tabela, que na maior parte dos dias e de
-    outro comercializador.
+    Procura primeiro a variante Dual com debito direto que corresponde ao NOS,
+    e so depois e que cai na proposta COMBINA mais barata da tabela. Sem isto
+    as contas saiam da fatura da oferta mais barata seja de que marca for.
     """
     if resultado is None or resultado.empty or "marca" not in resultado.columns:
         return None
     galp = resultado[resultado["marca"] == MARCA_COMBINA]
     if galp.empty:
         return None
+
+    preferida = PROPOSTA_COMBINA_COM_NOS if nos else PROPOSTA_COMBINA_SEM_NOS
+    alvo = _normaliza(preferida)
+    exatas = galp[galp["proposta"].map(_normaliza) == alvo]
+    if not exatas.empty:
+        return exatas.sort_values("total").iloc[0]
     return galp.sort_values("total").iloc[0]
 
 
@@ -675,8 +711,10 @@ def simular_combina(
     gas: bool = False,
     nos: bool = False,
     fatura_ele: float = 0.0,
+    energia_ele: float = 0.0,
     kwh_ele: float = 0.0,
     fatura_gas: float = 0.0,
+    energia_gas: float = 0.0,
     kwh_gas: float = 0.0,
     litros: float = 0.0,
     mesmo_local: bool = True,
@@ -684,39 +722,48 @@ def simular_combina(
     """
     Tudo o que a seccao Galp COMBINA precisa de mostrar, ja calculado.
 
+    Ha duas grandezas por energia e nao se podem trocar. energia_* e o custo so
+    da energia, o preco por kWh vezes o consumo, sem termo fixo, contribuicao
+    audiovisual, taxa DGEG nem IVA: e sobre esta parcela que incide a
+    percentagem do Continente e e dela que sai o preco por kWh mostrado.
+    fatura_* e a fatura inteira, que e o que se paga e o que aparece na tabela
+    das ofertas.
+
     Todos os valores de entrada e de saida sao mensais, porque os limites do
     programa sao mensais. Quem chama trata de dividir o periodo simulado.
-
-    O beneficio da Galp e sobre combustivel e nao se subtrai a fatura de
-    energia. So entra na poupanca total e no preco equivalente, que e uma
-    metrica de comparacao e vem marcada como tal em preco_equivalente_limitado.
     """
     nivel = nivel_combina(eletricidade, gas, nos, mesmo_local)
+    tem_ele = nivel["servicos"]["eletricidade"]
+    tem_gas = nivel["servicos"]["gas"]
 
     # Uma energia que o cliente nao tem nao traz fatura nem consumo.
-    valor_ele = max(float(fatura_ele), 0.0) if nivel["servicos"]["eletricidade"] else 0.0
-    consumo_ele = max(float(kwh_ele), 0.0) if nivel["servicos"]["eletricidade"] else 0.0
-    valor_gas = max(float(fatura_gas), 0.0) if nivel["servicos"]["gas"] else 0.0
-    consumo_gas = max(float(kwh_gas), 0.0) if nivel["servicos"]["gas"] else 0.0
+    valor_ele = max(float(fatura_ele), 0.0) if tem_ele else 0.0
+    custo_ele = max(float(energia_ele), 0.0) if tem_ele else 0.0
+    consumo_ele = max(float(kwh_ele), 0.0) if tem_ele else 0.0
+    valor_gas = max(float(fatura_gas), 0.0) if tem_gas else 0.0
+    custo_gas = max(float(energia_gas), 0.0) if tem_gas else 0.0
+    consumo_gas = max(float(kwh_gas), 0.0) if tem_gas else 0.0
 
     fatura_energia = valor_ele + valor_gas
+    custo_energia = custo_ele + custo_gas
     kwh_total = consumo_ele + consumo_gas
 
-    continente = beneficio_continente(fatura_energia, nivel["continente_percentagem"])
+    continente = beneficio_continente(custo_energia, nivel["continente_percentagem"])
     galp = beneficio_galp(litros, nivel["galp_por_litro"])
     poupanca_total = continente["beneficio"] + galp["beneficio"]
 
     # O beneficio do Continente reparte-se pelas duas energias na proporcao do
-    # peso de cada fatura, para o preco efetivo de cada uma fazer sentido.
-    def _efetivo(valor: float, consumo: float) -> float | None:
-        if fatura_energia <= 0:
-            return preco_por_kwh(valor, consumo)
-        parte = continente["beneficio"] * (valor / fatura_energia)
-        return preco_por_kwh(valor - parte, consumo)
+    # custo de cada uma, para o preco efetivo de cada uma fazer sentido.
+    def _efetivo(custo: float, consumo: float) -> float | None:
+        if custo_energia <= 0:
+            return preco_por_kwh(custo, consumo)
+        parte = continente["beneficio"] * (custo / custo_energia)
+        return preco_por_kwh(custo - parte, consumo)
 
-    # Quando os beneficios passam a fatura, o preco equivalente para em zero.
-    # Um preco negativo nao diria nada a ninguem.
-    sobra = fatura_energia - continente["beneficio"] - galp["beneficio"]
+    # Quando os beneficios passam o custo da energia, o preco equivalente para
+    # em zero. Um preco negativo nao diria nada a ninguem.
+    sobra = custo_energia - continente["beneficio"] - galp["beneficio"]
+    valor_final = fatura_energia - poupanca_total
     return {
         "nivel": nivel["nivel"],
         "servicos": nivel["servicos"],
@@ -727,6 +774,7 @@ def simular_combina(
         "fatura_ele": valor_ele,
         "fatura_gas": valor_gas,
         "fatura_energia": fatura_energia,
+        "custo_energia": custo_energia,
         "kwh_ele": consumo_ele,
         "kwh_gas": consumo_gas,
         "kwh_total": kwh_total,
@@ -738,16 +786,19 @@ def simular_combina(
         "litros_limitado": galp["limitado"],
         "poupanca_galp": galp["beneficio"],
         "poupanca_total": poupanca_total,
-        "preco_normal": preco_por_kwh(fatura_energia, kwh_total),
+        "valor_final": valor_final,
+        "valor_final_negativo": valor_final < 0,
+        "preco_normal": preco_por_kwh(custo_energia, kwh_total),
         "preco_continente": preco_por_kwh(
-            fatura_energia - continente["beneficio"], kwh_total
+            custo_energia - continente["beneficio"], kwh_total
         ),
         "preco_equivalente": preco_por_kwh(max(sobra, 0.0), kwh_total),
         "preco_equivalente_limitado": sobra < 0,
         "poupanca_por_kwh": preco_por_kwh(poupanca_total, kwh_total),
-        "preco_efetivo_ele": _efetivo(valor_ele, consumo_ele),
-        "preco_efetivo_gas": _efetivo(valor_gas, consumo_gas),
+        "preco_efetivo_ele": _efetivo(custo_ele, consumo_ele),
+        "preco_efetivo_gas": _efetivo(custo_gas, consumo_gas),
     }
+
 
 # --------------------------------------------------------------- comparativo
 

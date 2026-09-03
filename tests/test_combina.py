@@ -100,7 +100,12 @@ class TestContinente(unittest.TestCase):
     def test_8_preco_efetivo_com_continente(self):
         """300 kWh a 0,15 EUR, COMBINA 3."""
         r = dados.simular_combina(
-            eletricidade=True, gas=True, nos=True, fatura_ele=45.0, kwh_ele=300.0
+            eletricidade=True,
+            gas=True,
+            nos=True,
+            fatura_ele=45.0,
+            energia_ele=45.0,
+            kwh_ele=300.0,
         )
         self.assertEqual(r["nivel"], 3)
         self.assertAlmostEqual(r["fatura_energia"], 45.0)
@@ -143,7 +148,12 @@ class TestGalp(unittest.TestCase):
 
     def test_12_zero_litros(self):
         r = dados.simular_combina(
-            eletricidade=True, nos=True, fatura_ele=45.0, kwh_ele=300.0, litros=0.0
+            eletricidade=True,
+            nos=True,
+            fatura_ele=45.0,
+            energia_ele=45.0,
+            kwh_ele=300.0,
+            litros=0.0,
         )
         self.assertEqual(r["nivel"], 2)
         self.assertAlmostEqual(r["poupanca_galp"], 0.0)
@@ -176,7 +186,12 @@ class TestCenarios(unittest.TestCase):
     def test_13_eletricidade_mais_nos(self):
         """O exemplo final da seccao 35."""
         r = dados.simular_combina(
-            eletricidade=True, nos=True, fatura_ele=45.0, kwh_ele=300.0, litros=150.0
+            eletricidade=True,
+            nos=True,
+            fatura_ele=45.0,
+            energia_ele=45.0,
+            kwh_ele=300.0,
+            litros=150.0,
         )
         self.assertEqual(r["nivel"], 2)
         self.assertAlmostEqual(r["continente_percentagem"], 5.0)
@@ -192,9 +207,9 @@ class TestCenarios(unittest.TestCase):
             eletricidade=True,
             gas=True,
             nos=True,
-            fatura_ele=45.0,
+            fatura_ele=45.0, energia_ele=45.0,
             kwh_ele=300.0,
-            fatura_gas=10.0,
+            fatura_gas=10.0, energia_gas=10.0,
             kwh_gas=100.0,
             litros=150.0,
         )
@@ -209,9 +224,9 @@ class TestCenarios(unittest.TestCase):
         r = dados.simular_combina(
             eletricidade=True,
             gas=True,
-            fatura_ele=45.0,
+            fatura_ele=45.0, energia_ele=45.0,
             kwh_ele=300.0,
-            fatura_gas=10.0,
+            fatura_gas=10.0, energia_gas=10.0,
             kwh_gas=100.0,
         )
         self.assertEqual(r["nivel"], 2)
@@ -222,9 +237,9 @@ class TestCenarios(unittest.TestCase):
         r = dados.simular_combina(
             eletricidade=True,
             gas=True,
-            fatura_ele=45.0,
+            fatura_ele=45.0, energia_ele=45.0,
             kwh_ele=300.0,
-            fatura_gas=10.0,
+            fatura_gas=10.0, energia_gas=10.0,
             kwh_gas=100.0,
         )
         # 2,75 EUR repartidos na proporcao 45/55 e 10/55.
@@ -249,7 +264,7 @@ class TestPrecoEquivalente(unittest.TestCase):
             eletricidade=True,
             gas=True,
             nos=True,
-            fatura_ele=45.0,
+            fatura_ele=45.0, energia_ele=45.0,
             kwh_ele=300.0,
             litros=150.0,
         )
@@ -261,7 +276,7 @@ class TestPrecoEquivalente(unittest.TestCase):
         r = dados.simular_combina(
             eletricidade=True,
             nos=True,
-            fatura_ele=45.0,
+            fatura_ele=45.0, energia_ele=45.0,
             kwh_ele=300.0,
             litros=150.0,
         )
@@ -277,16 +292,79 @@ class TestPrecoEquivalente(unittest.TestCase):
         r = dados.simular_combina(
             eletricidade=True,
             nos=True,
-            fatura_ele=45.0,
+            fatura_ele=45.0, energia_ele=45.0,
             kwh_ele=300.0,
             litros=150.0,
         )
         self.assertAlmostEqual(r["poupanca_por_kwh"], 39.75 / 300.0)
 
     def test_sem_consumo_nao_ha_preco(self):
-        r = dados.simular_combina(eletricidade=True, fatura_ele=0.0, kwh_ele=0.0)
+        r = dados.simular_combina(
+            eletricidade=True, fatura_ele=0.0, energia_ele=0.0, kwh_ele=0.0
+        )
         self.assertIsNone(r["preco_normal"])
         self.assertIsNone(r["preco_continente"])
+
+
+class TestBaseDoDesconto(unittest.TestCase):
+    """A percentagem do Continente incide so sobre a energia."""
+
+    def test_a_base_e_a_energia_e_nao_a_fatura(self):
+        # Fatura de 85,65 EUR mas so 49,20 EUR de energia, que e o caso real de
+        # uma proposta com termo fixo, taxas e IVA por cima.
+        r = dados.simular_combina(
+            eletricidade=True,
+            gas=True,
+            nos=True,
+            fatura_ele=85.65,
+            energia_ele=49.20,
+            kwh_ele=300.0,
+        )
+        self.assertEqual(r["nivel"], 3)
+        # 10% de 49,20 e nao de 85,65.
+        self.assertAlmostEqual(r["poupanca_continente"], 4.92)
+        self.assertAlmostEqual(r["custo_energia"], 49.20)
+        self.assertAlmostEqual(r["fatura_energia"], 85.65)
+
+    def test_preco_por_kwh_e_o_da_energia(self):
+        r = dados.simular_combina(
+            eletricidade=True,
+            fatura_ele=85.65,
+            energia_ele=49.20,
+            kwh_ele=300.0,
+        )
+        self.assertAlmostEqual(r["preco_normal"], 0.164)
+        # COMBINA 1, 2%: o preco desce na mesma percentagem.
+        self.assertAlmostEqual(r["preco_continente"], 0.164 * 0.98)
+
+    def test_valor_final_desconta_as_duas_poupancas(self):
+        r = dados.simular_combina(
+            eletricidade=True,
+            nos=True,
+            fatura_ele=85.65,
+            energia_ele=49.20,
+            kwh_ele=300.0,
+            litros=150.0,
+        )
+        esperado = 85.65 - r["poupanca_continente"] - r["poupanca_galp"]
+        self.assertAlmostEqual(r["valor_final"], esperado)
+        self.assertAlmostEqual(r["poupanca_continente"], 49.20 * 0.05)
+        self.assertAlmostEqual(r["poupanca_galp"], 150.0 * 0.25)
+        self.assertFalse(r["valor_final_negativo"])
+
+    def test_valor_final_pode_ficar_negativo(self):
+        r = dados.simular_combina(
+            eletricidade=True,
+            gas=True,
+            nos=True,
+            fatura_ele=40.0,
+            energia_ele=30.0,
+            kwh_ele=200.0,
+            litros=250.0,
+        )
+        self.assertAlmostEqual(r["poupanca_galp"], 75.0)
+        self.assertLess(r["valor_final"], 0)
+        self.assertTrue(r["valor_final_negativo"])
 
 
 class TestValidacao(unittest.TestCase):
@@ -304,7 +382,11 @@ class TestValidacao(unittest.TestCase):
 
     def test_consumo_negativo_vale_zero(self):
         r = dados.simular_combina(
-            eletricidade=True, fatura_ele=-45.0, kwh_ele=-300.0, litros=-10.0
+            eletricidade=True,
+            fatura_ele=-45.0,
+            energia_ele=-45.0,
+            kwh_ele=-300.0,
+            litros=-10.0,
         )
         self.assertAlmostEqual(r["fatura_energia"], 0.0)
         self.assertAlmostEqual(r["kwh_total"], 0.0)
