@@ -1,0 +1,20 @@
+# Resultado do PyInstaller (o executavel gera-se com build.bat)
+build/
+dist/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Dados descarregados da ERSE (a app vai buscar sozinha)
+*.csv
+info.json
+
+# Segredos do Streamlit
+.streamlit/secrets.toml
+
+# Sistema
+.DS_Store
+Thumbs.db

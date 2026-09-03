@@ -1,0 +1,15 @@
+# Servico web para o Render. Em https://dashboard.render.com escolha
+# New > Blueprint e aponte para o repositorio, ou crie um Web Service a mao
+# com o mesmo Build Command e Start Command.
+services:
+  - type: web
+    name: comparador-energia
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: streamlit run app.py --server.port $PORT --server.address 0.0.0.0
+    envVars:
+      # O Render reinicia o contentor com o disco limpo, por isso os CSV vao
+      # para uma pasta temporaria e sao descarregados outra vez quando faltam.
+      - key: COMPARADOR_DADOS
+        value: /tmp/comparador-energia

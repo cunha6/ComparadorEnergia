@@ -1,0 +1,182 @@
+====================================================================
+ COMPARADOR DE ENERGIA
+ Le as ofertas comerciais do simulador de precos da ERSE, gera as
+ tabelas de precos de eletricidade e gas natural e simula a fatura.
+ Interface em Streamlit, abre no navegador.
+====================================================================
+
+--------------------------------------------------------------------
+1. COMO POR A FUNCIONAR
+--------------------------------------------------------------------
+
+Com o executavel
+   Duplo clique em ComparadorEnergia.exe. Abre uma janela preta com o
+   endereco e, logo a seguir, a aplicacao no navegador. A janela preta
+   tem de ficar aberta, e fecha-la que termina a aplicacao.
+
+Com o Python instalado
+   python main.py
+   ou, para desenvolver:  streamlit run app.py
+
+Gerar o executavel
+   1. Instalar o Python em https://www.python.org/downloads/windows/
+      Durante a instalacao, marcar a caixa "Add python.exe to PATH".
+   2. Duplo clique em build.bat e esperar alguns minutos.
+   3. O executavel fica em dist\ComparadorEnergia.exe, com cerca de
+      90 MB, e nao precisa de Python no computador de destino.
+
+   Se preferir um arranque mais rapido, correr numa linha de comandos
+      build.bat pasta
+   Nesse caso o resultado e a pasta dist\ComparadorEnergia, que tem de
+   ser copiada inteira.
+
+   Nota: o .exe tem de ser gerado num Windows, nao se cria a partir de
+   outro sistema operativo.
+
+--------------------------------------------------------------------
+2. DADOS
+--------------------------------------------------------------------
+
+A aplicacao vai sozinha a https://simuladorprecos.erse.pt/, descobre
+o endereco do ZIP das "Ofertas comerciais (CSV)", descarrega-o e extrai
+os dois ficheiros para
+
+   %LOCALAPPDATA%\ComparadorEnergia\dados
+      Precos_ELEGN.csv     precos de cada proposta
+      CondComerciais.csv   condicoes comerciais
+      info.json            data de publicacao e de descarga
+
+Isto acontece na primeira abertura e uma vez por cada arranque. O botao
+"Atualizar dados agora", na barra lateral, repete a operacao.
+
+Se a descarga falhar, aparece uma mensagem a explicar o que fazer:
+
+   1. Abrir https://simuladorprecos.erse.pt/
+   2. Na pagina inicial, carregar em "Ofertas comerciais (CSV)" e
+      guardar o ficheiro ZIP
+   3. Arrastar esse ZIP para a caixa que a aplicacao mostra, ou copiar
+      os dois CSV para a pasta indicada acima
+
+Se ja houver dados guardados de uma sessao anterior, a aplicacao
+continua a funcionar com eles e avisa que nao conseguiu atualizar.
+
+--------------------------------------------------------------------
+3. COMO USAR
+--------------------------------------------------------------------
+
+Separador "Eletricidade"
+   Escolher o ciclo de contagem e as potencias. A tabela tem uma linha por
+   comercializador e componente, e uma coluna por potencia:
+
+      Simples      Termo fixo simples (EUR/dia)
+                   Energia simples (EUR/kWh)
+      Bi-horario   Termo fixo bi (EUR/dia)
+                   Fora de vazio (EUR/kWh)
+                   Vazio (EUR/kWh)
+      Tri-horario  Termo fixo tri, Ponta, Cheias e Vazio
+
+   Em cada potencia e usada a proposta mais barata de cada comercializador,
+   escolhida pelo preco da energia. A caixa por cima da tabela diz, para cada
+   potencia, qual e a oferta com a energia mais barata.
+
+   Dois blocos que se abrem por baixo mostram a proposta que esta por tras de
+   cada valor e a lista completa de ofertas da primeira potencia escolhida.
+
+Separador "Gas natural"
+   O mesmo, por escalao de consumo.
+
+Separador "Simulador"
+   Tem dois sub-separadores, um para eletricidade e outro para gas natural.
+   Indicar o periodo em meses e o consumo. O resultado sao tres cartoes com as
+   ofertas mais baratas, a tabela com energia, potencia e IVA, e o grafico das
+   mais baratas. Em "Impostos e encargos" pode ajustar o IVA, a taxa DGEG e a
+   contribuicao audiovisual.
+
+Separador "Dados"
+   Origem e datas dos ficheiros, e as condicoes comerciais detalhadas de
+   qualquer proposta.
+
+Em qualquer tabela ha um botao para a guardar em CSV.
+
+--------------------------------------------------------------------
+4. FILTROS
+--------------------------------------------------------------------
+
+Comecam todos preenchidos com os valores mais usados:
+
+   Segmento                     Domestico
+   Comercializadores            EDP, Galp, Iberdrola, Endesa, Goldenergy,
+                                Repsol, Plenitude e MEO Energia
+   Restricoes                   Apenas ofertas em vigor hoje, e na
+                                eletricidade tambem excluir precos indexados
+   Potencias                    3,45  4,60  5,75  6,90  10,35 kVA
+   So a oferta mais barata de cada comercializador, no gas e no simulador
+
+Para ver o mercado todo basta limpar a caixa dos comercializadores. As outras
+restricoes disponiveis sao excluir ofertas so para novos clientes e mostrar
+apenas energia de origem renovavel.
+
+--------------------------------------------------------------------
+5. POR ONLINE, NO RENDER
+--------------------------------------------------------------------
+
+O Streamlit precisa de um processo sempre a correr e de uma ligacao WebSocket
+aberta com o navegador. Isso funciona no Render, que corre um contentor
+permanente. Nao funciona no Vercel nem em nada que use funcoes serverless.
+
+   1. Por o codigo num repositorio do GitHub
+   2. No Render, New > Blueprint, e apontar para esse repositorio
+      (o ficheiro render.yaml ja tem tudo configurado)
+
+Se preferir criar o servico a mao, New > Web Service, e usar:
+
+   Build Command   pip install -r requirements.txt
+   Start Command   streamlit run app.py --server.port $PORT --server.address 0.0.0.0
+   Variavel        COMPARADOR_DADOS = /tmp/comparador-energia
+
+O main.py nao e usado no servidor, esse so serve para abrir o navegador no
+computador de quem usa o executavel.
+
+Coisas a contar com no plano gratuito do Render:
+
+   O servico adormece ao fim de 15 minutos sem visitas, e a primeira visita
+   a seguir espera cerca de um minuto pelo arranque.
+
+   O disco e apagado a cada reinicio, por isso os CSV sao descarregados
+   outra vez. Sao 180 KB, demora poucos segundos.
+
+   Sao 512 MB de memoria. Chega para estes dados, mas e pouca folga.
+
+   A caixa de "Colocar os ficheiros a mao" passa a estar aberta a quem
+   visitar a pagina, e os ficheiros que la forem postos valem para todos.
+   Se o site for publico, convem retirar essa caixa da barra lateral.
+
+--------------------------------------------------------------------
+6. IMPOSTOS
+--------------------------------------------------------------------
+
+Os precos dos CSV da ERSE sao sem IVA e sem taxas. O simulador
+acrescenta, com valores que pode alterar:
+
+   IVA a 23 por cento sobre a energia
+   IVA a 6 por cento sobre a potencia ate 3,45 kVA
+   Contribuicao audiovisual, 2,85 euros por mes, com IVA a 6 por cento
+   Taxa DGEG, 0,07 euros por mes
+
+O total e uma estimativa. A fatura real pode variar com descontos,
+servicos adicionais e acertos de leitura.
+
+--------------------------------------------------------------------
+7. FICHEIROS DO PROJETO
+--------------------------------------------------------------------
+
+   main.py                arranca o servidor e abre o navegador
+   app.py                 interface Streamlit, tabelas e simulador
+   dados.py               leitura dos CSV, filtros e calculos
+   erse.py                descoberta e descarga do ZIP da ERSE
+   .streamlit\config.toml aspeto e opcoes do Streamlit
+   ComparadorEnergia.spec receita do PyInstaller
+   build.bat              gera o executavel
+   requirements.txt       bibliotecas, para instalar num servidor
+   render.yaml            configuracao do servico web no Render
+   LEIA-ME.txt            este ficheiro
